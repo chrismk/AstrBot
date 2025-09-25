@@ -14,7 +14,7 @@
 ### 一次性配置（已完成可跳过）
 ```bash
 # 添加远端（如果尚未添加）
-git remote add origin https://github.com/<your-name>/AstrBot.git
+git remote add origin https://github.com/chrismk/AstrBot.git
 git remote add upstream https://github.com/AstrBotDevs/AstrBot.git
 
 # 查看远端
@@ -43,7 +43,7 @@ git push -u origin feat/your-change
 
 分支命名建议：
 - 功能：`feat/xxx`  修复：`fix/xxx`  性能：`perf/xxx`  重构：`refactor/xxx`
-- 个人长期分支：`dev/<your-name>`（如已存在 `dev/chrismk`）
+- 个人长期分支：`dev/chrismk`（如已存在 `dev/chrismk`）
 
 ---
 
@@ -58,7 +58,7 @@ git merge upstream/master      # 或 upstream/dev（按上游实际）
 git push origin main           # 可选：备份到你的 fork
 
 # 2) 把更新并入你的个人分支
-git checkout dev/<your-name>
+git checkout dev/chrismk
 git merge main
 # 解决冲突 -> git add -A -> git commit（如产生合并提交）
 git push                       # 可选：备份
@@ -66,7 +66,7 @@ git push                       # 可选：备份
 
 方式 B（直接并入上游到个人分支）：
 ```bash
-git checkout dev/<your-name>
+git checkout dev/chrismk
 git fetch upstream
 git merge upstream/master      # 或 upstream/dev
 # 解决冲突 -> git add -A -> git commit

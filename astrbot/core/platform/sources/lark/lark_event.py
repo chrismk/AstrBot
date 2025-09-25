@@ -6,7 +6,7 @@ import lark_oapi as lark
 from io import BytesIO
 from typing import List
 from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Plain, Image as AstrBotImage, At
+from astrbot.api.message_components import Plain, Image as AstrBotImage, At, File as AstrBotFile
 from astrbot.core.utils.io import download_image_by_url
 from lark_oapi.api.im.v1 import *
 from astrbot import logger
@@ -86,7 +86,8 @@ class LarkMessageEvent(AstrMessageEvent):
             }
         }
 
-        request = (
+        # 先发送富文本 Post（文本与图片）
+        post_req = (
             ReplyMessageRequest.builder()
             .message_id(self.message_obj.message_id)
             .request_body(
@@ -100,10 +101,95 @@ class LarkMessageEvent(AstrMessageEvent):
             .build()
         )
 
-        response = await self.bot.im.v1.message.areply(request)
+        post_resp = await self.bot.im.v1.message.areply(post_req)
+        if not post_resp.success():
+            logger.error(f"回复飞书消息失败({post_resp.code}): {post_resp.msg}")
 
-        if not response.success():
-            logger.error(f"回复飞书消息失败({response.code}): {response.msg}")
+        # 针对文件段，逐个上传并发送 file 消息
+        for comp in message.chain:
+            if isinstance(comp, AstrBotFile):
+                try:
+                    # 获取可用的文件本地路径或 URL 下载到本地
+                    # AstrBot File 提供 get_file(allow_return_url=True)
+                    path_or_url = await comp.get_file(allow_return_url=True)
+
+                    # 直传 file_key:xxxx（无需上传）
+                    if isinstance(path_or_url, str) and path_or_url.startswith("file_key:"):
+                        file_key = path_or_url.split(":", 1)[1]
+                        file_msg_req = (
+                            ReplyMessageRequest.builder()
+                            .message_id(self.message_obj.message_id)
+                            .request_body(
+                                ReplyMessageRequestBody.builder()
+                                .content(json.dumps({"file_key": file_key}))
+                                .msg_type("file")
+                                .uuid(str(uuid.uuid4()))
+                                .reply_in_thread(False)
+                                .build()
+                            )
+                            .build()
+                        )
+                        file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
+                        if not file_msg_resp.success():
+                            logger.error(f"发送飞书文件消息失败({file_msg_resp.code}): {file_msg_resp.msg}")
+                        continue
+
+                    # 确保我们有本地文件句柄
+                    _file_handle = None
+                    if path_or_url and path_or_url.startswith("http"):
+                        # 下载到临时文件后上传
+                        from astrbot.core.utils.io import download_file as dl
+                        temp_dir = os.path.join(get_astrbot_data_path(), "temp")
+                        os.makedirs(temp_dir, exist_ok=True)
+                        temp_path = os.path.join(temp_dir, f"{uuid.uuid4()}")
+                        await dl(path_or_url, temp_path)
+                        _file_handle = open(temp_path, "rb")
+                    else:
+                        # 直接打开本地文件
+                        _file_handle = open(path_or_url, "rb")
+
+                    # 上传文件得到 file_key
+                    file_upload_req = (
+                        CreateFileRequest.builder()
+                        .request_body(
+                            CreateFileRequestBody.builder()
+                            .file_type("opus")  # 文件类型占位，不影响上传；飞书会自动识别
+                            .file_name(comp.name or "file")
+                            .file(_file_handle)
+                            .build()
+                        )
+                        .build()
+                    )
+                    file_resp = await self.bot.im.v1.file.acreate(file_upload_req)
+                    if not file_resp.success():
+                        logger.error(f"上传飞书文件失败({file_resp.code}): {file_resp.msg}")
+                        if _file_handle:
+                            _file_handle.close()
+                        continue
+
+                    file_key = file_resp.data.file_key
+                    if _file_handle:
+                        _file_handle.close()
+
+                    # 发送 file 消息（回复）
+                    file_msg_req = (
+                        ReplyMessageRequest.builder()
+                        .message_id(self.message_obj.message_id)
+                        .request_body(
+                            ReplyMessageRequestBody.builder()
+                            .content(json.dumps({"file_key": file_key}))
+                            .msg_type("file")
+                            .uuid(str(uuid.uuid4()))
+                            .reply_in_thread(False)
+                            .build()
+                        )
+                        .build()
+                    )
+                    file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
+                    if not file_msg_resp.success():
+                        logger.error(f"发送飞书文件消息失败({file_msg_resp.code}): {file_msg_resp.msg}")
+                except Exception as e:
+                    logger.error(f"发送飞书文件消息异常: {e}")
 
         await super().send(message)
 

@@ -127,13 +127,41 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 else:
                     await client.send_photo(photo=image_path, **payload)
             elif isinstance(i, File):
-                if i.file.startswith("https://"):
+                # Determine document source priority:
+                # 1) explicit telegram file_id:xxxx
+                # 2) http/https URL -> download to local path
+                # 3) existing local path
+                document_src = None
+                if i.file and str(i.file).startswith("file_id:"):
+                    document_src = str(i.file).split(":", 1)[1]
+                elif i.file and str(i.file).startswith("http"):
                     temp_dir = os.path.join(get_astrbot_data_path(), "temp")
                     path = os.path.join(temp_dir, i.name)
                     await download_file(i.file, path)
                     i.file = path
-
-                await client.send_document(document=i.file, filename=i.name, **payload)
+                    document_src = i.file
+                else:
+                    document_src = i.file
+                if not document_src:
+                    # fallback to raw value (may be Telegram file_id)
+                    raw_value = getattr(i, "file_", None)
+                    if raw_value:
+                        if str(raw_value).startswith("file_id:"):
+                            document_src = str(raw_value).split(":", 1)[1]
+                        else:
+                            document_src = raw_value
+                # optional caption support
+                caption = getattr(i, "caption", None) or None
+                if caption:
+                    try:
+                        md_caption = telegramify_markdown.markdownify(
+                            caption, max_line_length=None, normalize_whitespace=False
+                        )
+                    except Exception:
+                        md_caption = caption
+                    await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                else:
+                    await client.send_document(document=document_src, filename=i.name, **payload)
             elif isinstance(i, Record):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)
@@ -195,15 +223,42 @@ class TelegramPlatformEvent(AstrMessageEvent):
                             await self.client.send_photo(photo=image_path, **payload)
                         continue
                     elif isinstance(i, File):
-                        if i.file.startswith("https://"):
+                        # Determine document source priority (streaming path):
+                        # file_id:xxxx > http(s) download > local path
+                        document_src = None
+                        if i.file and str(i.file).startswith("file_id:"):
+                            document_src = str(i.file).split(":", 1)[1]
+                        elif i.file and str(i.file).startswith("http"):
                             temp_dir = os.path.join(get_astrbot_data_path(), "temp")
                             path = os.path.join(temp_dir, i.name)
                             await download_file(i.file, path)
                             i.file = path
-
-                        await self.client.send_document(
-                            document=i.file, filename=i.name, **payload
-                        )
+                            document_src = i.file
+                        else:
+                            document_src = i.file
+                        if not document_src:
+                            raw_value = getattr(i, "file_", None)
+                            if raw_value:
+                                if str(raw_value).startswith("file_id:"):
+                                    document_src = str(raw_value).split(":", 1)[1]
+                                else:
+                                    document_src = raw_value
+                        # optional caption support
+                        caption = getattr(i, "caption", None) or None
+                        if caption:
+                            try:
+                                md_caption = telegramify_markdown.markdownify(
+                                    caption, max_line_length=None, normalize_whitespace=False
+                                )
+                            except Exception:
+                                md_caption = caption
+                            await self.client.send_document(
+                                document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload
+                            )
+                        else:
+                            await self.client.send_document(
+                                document=document_src, filename=i.name, **payload
+                            )
                         continue
                     elif isinstance(i, Record):
                         path = await i.convert_to_file_path()

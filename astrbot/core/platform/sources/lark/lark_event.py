@@ -113,8 +113,8 @@ class LarkMessageEvent(AstrMessageEvent):
                     # AstrBot File 提供 get_file(allow_return_url=True)
                     path_or_url = await comp.get_file(allow_return_url=True)
 
-                    # 直传 file_key:xxxx（无需上传）
-                    if isinstance(path_or_url, str) and path_or_url.startswith("file_key:"):
+                    # 直传 file_key:xxxx 或 file_id:xxxx（无需上传；两者视为同义，统一映射为 file_key）
+                    if isinstance(path_or_url, str) and (path_or_url.startswith("file_key:") or path_or_url.startswith("file_id:")):
                         file_key = path_or_url.split(":", 1)[1]
                         file_msg_req = (
                             ReplyMessageRequest.builder()
@@ -192,6 +192,49 @@ class LarkMessageEvent(AstrMessageEvent):
                     logger.error(f"发送飞书文件消息异常: {e}")
 
         await super().send(message)
+
+    async def delete_message(self, message_id: str | None = None) -> bool:
+        """删除（撤回）一条消息。飞书删除需要 original message_id。默认撤回当前被回复的消息。"""
+        try:
+            target_message_id = message_id or self.message_obj.message_id
+            req = (
+                DeleteMessageRequest.builder()
+                .message_id(target_message_id)
+                .build()
+            )
+            resp = await self.bot.im.v1.message.adelete(req)
+            return bool(resp and resp.success())
+        except Exception as e:
+            logger.error(f"飞书删除消息失败: {e}")
+            return False
+
+    async def edit_message(self, message_id: str | None, text: str) -> bool:
+        """编辑文本消息（message_id 在前，text 在后，与 Telegram 保持一致）。
+        若未指定 message_id，默认使用当前上下文的 message_id（通常只能编辑机器人自己发送且平台允许的消息）。"""
+        try:
+            target_message_id = message_id or self.message_obj.message_id
+            wrapped = {
+                "zh_cn": {
+                    "title": "",
+                    "content": [[{"tag": "md", "text": text}]],
+                }
+            }
+            req = (
+                UpdateMessageRequest.builder()
+                .message_id(target_message_id)
+                .request_body(
+                    UpdateMessageRequestBody.builder()
+                    .content(json.dumps(wrapped))
+                    .msg_type("post")
+                    .build()
+                )
+                .build()
+            )
+            resp = await self.bot.im.v1.message.aupdate(req)
+            return bool(resp and resp.success())
+        except Exception as e:
+            logger.error(f"飞书编辑消息失败: {e}")
+            return False
 
     async def send_streaming(self, generator, use_fallback: bool = False):
         buffer = None

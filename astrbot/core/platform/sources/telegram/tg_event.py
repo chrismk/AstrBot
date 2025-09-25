@@ -173,6 +173,42 @@ class TelegramPlatformEvent(AstrMessageEvent):
             await self.send_with_client(self.client, message, self.get_sender_id())
         await super().send(message)
 
+    async def delete_message(self, message_id: int) -> bool:
+        """删除一条消息。需要提供目标 message_id。"""
+        try:
+            if self.get_message_type() == MessageType.GROUP_MESSAGE:
+                chat_id = self.message_obj.group_id
+            else:
+                chat_id = self.get_sender_id()
+            await self.client.delete_message(chat_id=chat_id, message_id=message_id)
+            return True
+        except Exception as e:
+            logger.warning(f"Telegram 删除消息失败: {e!s}")
+            return False
+
+    async def edit_message(self, message_id: int | None, text: str) -> bool:
+        """编辑一条已发送的文本消息内容为 text（MarkdownV2）。"""
+        try:
+            if self.get_message_type() == MessageType.GROUP_MESSAGE:
+                chat_id = self.message_obj.group_id
+            else:
+                chat_id = self.get_sender_id()
+
+            try:
+                md_text = telegramify_markdown.markdownify(
+                    text, max_line_length=None, normalize_whitespace=False
+                )
+            except Exception:
+                md_text = text
+
+            await self.client.edit_message_text(
+                chat_id=chat_id, message_id=message_id, text=md_text, parse_mode="MarkdownV2"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Telegram 编辑消息失败: {e!s}")
+            return False
+
     async def send_streaming(self, generator, use_fallback: bool = False):
         message_thread_id = None
 

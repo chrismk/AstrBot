@@ -8,6 +8,10 @@ from telegram import BotCommand, Update
 from telegram.constants import ChatType
 from telegram.ext import ApplicationBuilder, ContextTypes, ExtBot, filters
 from telegram.ext import MessageHandler as TelegramMessageHandler
+from telegram.ext import CallbackQueryHandler
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+import aiohttp
+import telegramify_markdown
 
 import astrbot.api.message_components as Comp
 from astrbot.api import logger
@@ -78,6 +82,8 @@ class TelegramPlatformAdapter(Platform):
             callback=self.message_handler,
         )
         self.application.add_handler(message_handler)
+        # Generic callback handler (adapter remains business-agnostic)
+        self.application.add_handler(CallbackQueryHandler(self.callback_handler))
         self.client = self.application.bot
         logger.debug(f"Telegram base url: {self.client.base_url}")
 
@@ -120,6 +126,46 @@ class TelegramPlatformAdapter(Platform):
         queue = self.application.updater.start_polling()
         logger.info("Telegram Platform Adapter is running.")
         await queue
+
+    async def callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Generic callback passthrough: convert to a normal message event with a special prefix.
+        Plugins can listen by checking message_str prefix or future callback filters.
+        """
+        query = update.callback_query
+        if not query:
+            return
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        # Convert to a message-like event and dispatch
+        abm = AstrBotMessage()
+        chat = query.message.chat
+        abm.session_id = str(chat.id)
+        if chat.type == ChatType.PRIVATE:
+            abm.type = MessageType.FRIEND_MESSAGE
+        else:
+            abm.type = MessageType.GROUP_MESSAGE
+            abm.group_id = str(chat.id)
+            if getattr(query.message, "message_thread_id", None):
+                abm.group_id += "#" + str(query.message.message_thread_id)
+                abm.session_id = abm.group_id
+        abm.message_id = str(query.message.message_id)
+        abm.sender = MessageMember(str(query.from_user.id), query.from_user.username)
+        abm.self_id = str(context.bot.username)
+        abm.raw_message = update
+        # Use a reserved slash-command for callback messages (so plugins can receive via command filter)
+        data = query.data or ""
+        abm.message_str = f"/callback {data}"
+        abm.message = [Comp.Plain(abm.message_str)]
+        message_event = TelegramPlatformEvent(
+            message_str=abm.message_str,
+            message_obj=abm,
+            platform_meta=self.meta(),
+            session_id=abm.session_id,
+            client=self.client,
+        )
+        self.commit_event(message_event)
 
     async def register_commands(self):
         """收集所有注册的指令并注册到 Telegram"""

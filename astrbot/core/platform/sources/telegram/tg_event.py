@@ -92,6 +92,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
         text_content = ""
         keyboard_markup = None
         other_components = []
+        used_keyboard = False
         
         for i in message.chain:
             if isinstance(i, Plain):
@@ -157,6 +158,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         f"MarkdownV2 send failed: {e}. Using plain text instead."
                     )
                     await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
+            used_keyboard = True
         elif text_content:
             # 只有文本内容，没有键盘
             payload = {
@@ -220,9 +222,17 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         )
                     except Exception:
                         md_caption = caption
-                    await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
                 else:
-                    await client.send_photo(photo=image_path, **payload)
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_photo(photo=image_path, reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_photo(photo=image_path, **payload)
             elif isinstance(i, File):
                 # Determine document source priority:
                 # 1) explicit telegram file_id:xxxx
@@ -256,9 +266,17 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         )
                     except Exception:
                         md_caption = caption
-                    await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
                 else:
-                    await client.send_document(document=document_src, filename=i.name, **payload)
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_document(document=document_src, filename=i.name, reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_document(document=document_src, filename=i.name, **payload)
             elif isinstance(i, Record):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)

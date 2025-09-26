@@ -165,6 +165,23 @@ class TelegramPlatformAdapter(Platform):
             session_id=abm.session_id,
             client=self.client,
         )
+        # mark as command-like; parse llm flag (llm=0 disables default LLM)
+        try:
+            message_event.is_wake = True
+            message_event.is_at_or_wake_command = True
+            llm_disable = True
+            if data and "llm=" in data:
+                try:
+                    parts = {kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in data.split("|") if "=" in kv}
+                    llm_disable = parts.get("llm", "0") != "1"
+                except Exception:
+                    llm_disable = True
+            if llm_disable:
+                message_event.should_call_llm(True)
+            else:
+                message_event.should_call_llm(False)
+        except Exception:
+            pass
         self.commit_event(message_event)
 
     async def register_commands(self):

@@ -67,6 +67,7 @@ class ComponentType(str, Enum):
     Unknown = "Unknown"
 
     WechatEmoji = "WechatEmoji"  # Wechat 下的 emoji 表情包
+    InlineKeyboard = "InlineKeyboard"  # 内联键盘
 
 
 class BaseMessageComponent(BaseModel):
@@ -872,6 +873,58 @@ class WechatEmoji(BaseMessageComponent):
         super().__init__(**_)
 
 
+class InlineKeyboard(BaseMessageComponent):
+    """内联键盘组件，支持平台无关的按钮定义"""
+    type = ComponentType.InlineKeyboard
+    buttons: T.List[T.List[T.Dict[str, T.Any]]] = []  # 按钮行列表，每行包含按钮字典列表
+    
+    def __init__(self, buttons: T.List[T.List[T.Dict[str, T.Any]]] = None, **_):
+        """
+        初始化内联键盘
+        
+        Args:
+            buttons: 按钮行列表，格式为 [[{"text": "按钮文本", "callback_data": "回调数据"}], ...]
+        """
+        if buttons is None:
+            buttons = []
+        super().__init__(buttons=buttons, **_)
+    
+    def add_row(self, *buttons: T.Dict[str, T.Any]):
+        """添加一行按钮"""
+        self.buttons.append(list(buttons))
+        return self
+    
+    def add_button(self, text: str, callback_data: str = None, url: str = None, **kwargs):
+        """添加单个按钮到当前行"""
+        button = {"text": text}
+        if callback_data:
+            button["callback_data"] = callback_data
+        if url:
+            button["url"] = url
+        button.update(kwargs)
+        
+        if not self.buttons:
+            self.buttons.append([])
+        self.buttons[-1].append(button)
+        return self
+    
+    def new_row(self):
+        """开始新的一行"""
+        self.buttons.append([])
+        return self
+    
+    def toDict(self):
+        return {
+            "type": "inline_keyboard",
+            "data": {
+                "buttons": self.buttons
+            }
+        }
+    
+    async def to_dict(self):
+        return self.toDict()
+
+
 ComponentTypes = {
     "plain": Plain,
     "text": Plain,
@@ -901,4 +954,5 @@ ComponentTypes = {
     "unknown": Unknown,
     "file": File,
     "WechatEmoji": WechatEmoji,
+    "inline_keyboard": InlineKeyboard,
 }

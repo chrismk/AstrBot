@@ -11,6 +11,7 @@ from astrbot.api.message_components import (
     At,
     File,
     Record,
+    InlineKeyboard,
 )
 from telegram.ext import ExtBot
 from astrbot.core.utils.io import download_file
@@ -165,6 +166,42 @@ class TelegramPlatformEvent(AstrMessageEvent):
             elif isinstance(i, Record):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)
+            elif isinstance(i, InlineKeyboard):
+                # 处理内联键盘组件
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                
+                keyboard_buttons = []
+                for row in i.buttons:
+                    row_buttons = []
+                    for button in row:
+                        if "url" in button:
+                            # URL 按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                url=button["url"]
+                            ))
+                        elif "callback_data" in button:
+                            # 回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button["callback_data"]
+                            ))
+                        else:
+                            # 默认回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button.get("text", "")
+                            ))
+                    keyboard_buttons.append(row_buttons)
+                
+                if keyboard_buttons:
+                    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+                    # 发送带键盘的消息
+                    await client.send_message(
+                        text="",  # 空文本，键盘会附加到消息上
+                        reply_markup=reply_markup,
+                        **payload
+                    )
 
     async def send(self, message: MessageChain):
         if self.get_message_type() == MessageType.GROUP_MESSAGE:
@@ -299,6 +336,43 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     elif isinstance(i, Record):
                         path = await i.convert_to_file_path()
                         await self.client.send_voice(voice=path, **payload)
+                        continue
+                    elif isinstance(i, InlineKeyboard):
+                        # 处理内联键盘组件（流式）
+                        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                        
+                        keyboard_buttons = []
+                        for row in i.buttons:
+                            row_buttons = []
+                            for button in row:
+                                if "url" in button:
+                                    # URL 按钮
+                                    row_buttons.append(InlineKeyboardButton(
+                                        text=button["text"],
+                                        url=button["url"]
+                                    ))
+                                elif "callback_data" in button:
+                                    # 回调按钮
+                                    row_buttons.append(InlineKeyboardButton(
+                                        text=button["text"],
+                                        callback_data=button["callback_data"]
+                                    ))
+                                else:
+                                    # 默认回调按钮
+                                    row_buttons.append(InlineKeyboardButton(
+                                        text=button["text"],
+                                        callback_data=button.get("text", "")
+                                    ))
+                            keyboard_buttons.append(row_buttons)
+                        
+                        if keyboard_buttons:
+                            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+                            # 发送带键盘的消息
+                            await self.client.send_message(
+                                text="",  # 空文本，键盘会附加到消息上
+                                reply_markup=reply_markup,
+                                **payload
+                            )
                         continue
                     else:
                         logger.warning(f"不支持的消息类型: {type(i)}")

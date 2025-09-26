@@ -42,13 +42,20 @@ class LarkPlatformAdapter(Platform):
 
         async def on_msg_event_recv(event: lark.im.v1.P2ImMessageReceiveV1):
             await self.convert_msg(event)
+        
+        async def on_interactive_event_recv(event: lark.im.v1.P2ImMessageReceiveV1):
+            await self.convert_interactive_msg(event)
 
         def do_v2_msg_event(event: lark.im.v1.P2ImMessageReceiveV1):
             asyncio.create_task(on_msg_event_recv(event))
+        
+        def do_interactive_event(event: lark.im.v1.P2ImMessageReceiveV1):
+            asyncio.create_task(on_interactive_event_recv(event))
 
         self.event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(do_v2_msg_event)
+            .register_p2_im_message_receive_v1(do_interactive_event)  # 注册交互式按钮回调
             .build()
         )
 
@@ -230,3 +237,48 @@ class LarkPlatformAdapter(Platform):
 
     def get_client(self) -> lark.Client:
         return self.client
+    
+    async def convert_interactive_msg(self, event: lark.im.v1.P2ImMessageReceiveV1):
+        """处理飞书交互式按钮回调事件"""
+        try:
+            # 解析交互式按钮回调数据
+            if hasattr(event, 'event') and hasattr(event.event, 'action'):
+                action = event.event.action
+                if hasattr(action, 'value') and action.value:
+                    # 提取回调数据
+                    callback_data = action.value.get('value', '')
+                    if callback_data.startswith('disk|'):
+                        # 构造特殊的消息字符串，类似 Telegram 的处理方式
+                        message_str = f"/callback {callback_data}"
+                        
+                        # 创建 AstrBotMessage
+                        abm = AstrBotMessage(
+                            message_str=message_str,
+                            message_type=MessageType.GROUP_MESSAGE if hasattr(event.event, 'chat_id') else MessageType.PRIVATE_MESSAGE,
+                            sender=MessageMember(
+                                user_id=event.event.sender.sender_id.user_id,
+                                username=event.event.sender.sender_id.get('open_id', ''),
+                                nickname=event.event.sender.sender_id.get('open_id', ''),
+                            ),
+                            group_id=event.event.chat_id if hasattr(event.event, 'chat_id') else None,
+                            session_id=event.event.chat_id if hasattr(event.event, 'chat_id') else event.event.sender.sender_id.user_id,
+                            platform_meta=PlatformMetadata(
+                                platform_name="lark",
+                                platform_id=self.appid,
+                                platform_type="lark",
+                                platform_version="1.0.0",
+                            ),
+                            message_id=str(event.event.message_id),
+                            timestamp=event.event.create_time,
+                            is_wake=True,  # 标记为唤醒消息
+                            is_at_or_wake_command=True,  # 标记为命令消息
+                        )
+                        
+                        # 设置 LLM 调用标记
+                        abm.should_call_llm(True)
+                        
+                        logger.debug(f"[lark-interactive] 处理交互式按钮回调: {callback_data}")
+                        await self.handle_msg(abm)
+                        
+        except Exception as e:
+            logger.error(f"[lark-interactive] 处理交互式按钮回调失败: {e}")

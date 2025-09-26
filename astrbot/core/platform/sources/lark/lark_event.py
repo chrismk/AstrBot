@@ -6,7 +6,7 @@ import lark_oapi as lark
 from io import BytesIO
 from typing import List
 from astrbot.api.event import AstrMessageEvent, MessageChain
-from astrbot.api.message_components import Plain, Image as AstrBotImage, At, File as AstrBotFile
+from astrbot.api.message_components import Plain, Image as AstrBotImage, At, File as AstrBotFile, InlineKeyboard
 from astrbot.core.utils.io import download_image_by_url
 from lark_oapi.api.im.v1 import *
 from astrbot import logger
@@ -70,6 +70,42 @@ class LarkMessageEvent(AstrMessageEvent):
                 ret.append(_stage)
                 ret.append([{"tag": "img", "image_key": image_key}])
                 _stage.clear()
+            elif isinstance(comp, InlineKeyboard):
+                # 处理内联键盘组件 - 转换为飞书消息卡片
+                if comp.buttons:
+                    # 创建消息卡片
+                    card_elements = []
+                    
+                    # 添加按钮
+                    for row in comp.buttons:
+                        for button in row:
+                            if "callback_data" in button:
+                                # 回调按钮 - 使用交互式按钮
+                                card_elements.append({
+                                    "tag": "button",
+                                    "text": {"tag": "plain_text", "content": button["text"]},
+                                    "type": "primary",
+                                    "value": {"key": "callback", "value": button["callback_data"]}
+                                })
+                            elif "url" in button:
+                                # URL 按钮 - 使用链接按钮
+                                card_elements.append({
+                                    "tag": "button",
+                                    "text": {"tag": "plain_text", "content": button["text"]},
+                                    "type": "default",
+                                    "url": button["url"]
+                                })
+                    
+                    if card_elements:
+                        # 创建消息卡片
+                        card_content = {
+                            "config": {"wide_screen_mode": True},
+                            "elements": card_elements
+                        }
+                        
+                        ret.append(_stage)
+                        ret.append([{"tag": "interactive", "card": card_content}])
+                        _stage.clear()
             else:
                 logger.warning(f"飞书 暂时不支持消息段: {comp.type}")
 
@@ -208,17 +244,49 @@ class LarkMessageEvent(AstrMessageEvent):
             logger.error(f"飞书删除消息失败: {e}")
             return False
 
-    async def edit_message(self, message_id: str | None, text: str) -> bool:
-        """编辑文本消息（message_id 在前，text 在后，与 Telegram 保持一致）。
+    async def edit_message(self, message_id: str | None, text: str, keyboard: InlineKeyboard = None) -> bool:
+        """编辑消息（支持文本和交互式按钮）。
         若未指定 message_id，默认使用当前上下文的 message_id（通常只能编辑机器人自己发送且平台允许的消息）。"""
         try:
             target_message_id = message_id or self.message_obj.message_id
+            
+            # 构建消息内容
+            content = [[{"tag": "md", "text": text}]]
+            
+            # 如果有键盘，添加交互式按钮
+            if keyboard and keyboard.buttons:
+                card_elements = []
+                for row in keyboard.buttons:
+                    for button in row:
+                        if "callback_data" in button:
+                            card_elements.append({
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": button["text"]},
+                                "type": "primary",
+                                "value": {"key": "callback", "value": button["callback_data"]}
+                            })
+                        elif "url" in button:
+                            card_elements.append({
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": button["text"]},
+                                "type": "default",
+                                "url": button["url"]
+                            })
+                
+                if card_elements:
+                    card_content = {
+                        "config": {"wide_screen_mode": True},
+                        "elements": card_elements
+                    }
+                    content.append([{"tag": "interactive", "card": card_content}])
+            
             wrapped = {
                 "zh_cn": {
                     "title": "",
-                    "content": [[{"tag": "md", "text": text}]],
+                    "content": content,
                 }
             }
+            
             req = (
                 UpdateMessageRequest.builder()
                 .message_id(target_message_id)

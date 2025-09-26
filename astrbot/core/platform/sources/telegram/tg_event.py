@@ -167,7 +167,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)
             elif isinstance(i, InlineKeyboard):
-                # 处理内联键盘组件
+                # 处理内联键盘组件 - 发送带键盘的默认消息
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                 
                 keyboard_buttons = []
@@ -198,7 +198,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     reply_markup = InlineKeyboardMarkup(keyboard_buttons)
                     # 发送带键盘的消息
                     await client.send_message(
-                        text="",  # 空文本，键盘会附加到消息上
+                        text="📋 请选择操作：",
                         reply_markup=reply_markup,
                         **payload
                     )
@@ -338,7 +338,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         await self.client.send_voice(voice=path, **payload)
                         continue
                     elif isinstance(i, InlineKeyboard):
-                        # 处理内联键盘组件（流式）
+                        # 处理内联键盘组件（流式）- 发送带键盘的默认消息
                         from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                         
                         keyboard_buttons = []
@@ -369,7 +369,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                             reply_markup = InlineKeyboardMarkup(keyboard_buttons)
                             # 发送带键盘的消息
                             await self.client.send_message(
-                                text="",  # 空文本，键盘会附加到消息上
+                                text="📋 请选择操作：",
                                 reply_markup=reply_markup,
                                 **payload
                             )

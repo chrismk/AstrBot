@@ -87,7 +87,103 @@ class TelegramPlatformEvent(AstrMessageEvent):
         if "#" in user_name:
             # it's a supergroup chat with message_thread_id
             user_name, message_thread_id = user_name.split("#")
+        
+        # 预处理：收集文本内容和键盘
+        text_content = ""
+        keyboard_markup = None
+        other_components = []
+        
         for i in message.chain:
+            if isinstance(i, Plain):
+                if at_user_id and not at_flag:
+                    text_content += f"@{at_user_id} {i.text}"
+                    at_flag = True
+                else:
+                    text_content += i.text
+            elif isinstance(i, InlineKeyboard):
+                # 处理内联键盘组件
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                
+                keyboard_buttons = []
+                for row in i.buttons:
+                    row_buttons = []
+                    for button in row:
+                        if "url" in button:
+                            # URL 按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                url=button["url"]
+                            ))
+                        elif "callback_data" in button:
+                            # 回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button["callback_data"]
+                            ))
+                        else:
+                            # 默认回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button.get("text", "")
+                            ))
+                    keyboard_buttons.append(row_buttons)
+                
+                if keyboard_buttons:
+                    keyboard_markup = InlineKeyboardMarkup(keyboard_buttons)
+            else:
+                other_components.append(i)
+        
+        # 如果有文本内容和键盘，发送带键盘的文本消息
+        if text_content and keyboard_markup:
+            payload = {
+                "chat_id": user_name,
+            }
+            if has_reply:
+                payload["reply_to_message_id"] = reply_message_id
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
+            
+            chunks = cls._split_message(text_content)
+            for chunk in chunks:
+                try:
+                    md_text = telegramify_markdown.markdownify(
+                        chunk, max_line_length=None, normalize_whitespace=False
+                    )
+                    await client.send_message(
+                        text=md_text, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"MarkdownV2 send failed: {e}. Using plain text instead."
+                    )
+                    await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
+        elif text_content:
+            # 只有文本内容，没有键盘
+            payload = {
+                "chat_id": user_name,
+            }
+            if has_reply:
+                payload["reply_to_message_id"] = reply_message_id
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
+            
+            chunks = cls._split_message(text_content)
+            for chunk in chunks:
+                try:
+                    md_text = telegramify_markdown.markdownify(
+                        chunk, max_line_length=None, normalize_whitespace=False
+                    )
+                    await client.send_message(
+                        text=md_text, parse_mode="MarkdownV2", **payload
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"MarkdownV2 send failed: {e}. Using plain text instead."
+                    )
+                    await client.send_message(text=chunk, **payload)
+        
+        # 处理其他组件
+        for i in other_components:
             payload = {
                 "chat_id": user_name,
             }
@@ -167,41 +263,8 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)
             elif isinstance(i, InlineKeyboard):
-                # 处理内联键盘组件 - 发送带键盘的默认消息
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                
-                keyboard_buttons = []
-                for row in i.buttons:
-                    row_buttons = []
-                    for button in row:
-                        if "url" in button:
-                            # URL 按钮
-                            row_buttons.append(InlineKeyboardButton(
-                                text=button["text"],
-                                url=button["url"]
-                            ))
-                        elif "callback_data" in button:
-                            # 回调按钮
-                            row_buttons.append(InlineKeyboardButton(
-                                text=button["text"],
-                                callback_data=button["callback_data"]
-                            ))
-                        else:
-                            # 默认回调按钮
-                            row_buttons.append(InlineKeyboardButton(
-                                text=button["text"],
-                                callback_data=button.get("text", "")
-                            ))
-                    keyboard_buttons.append(row_buttons)
-                
-                if keyboard_buttons:
-                    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-                    # 发送带键盘的消息
-                    await client.send_message(
-                        text="📋 请选择操作：",
-                        reply_markup=reply_markup,
-                        **payload
-                    )
+                # InlineKeyboard 已在预处理中处理，跳过
+                continue
 
     async def send(self, message: MessageChain):
         if self.get_message_type() == MessageType.GROUP_MESSAGE:
@@ -338,41 +401,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         await self.client.send_voice(voice=path, **payload)
                         continue
                     elif isinstance(i, InlineKeyboard):
-                        # 处理内联键盘组件（流式）- 发送带键盘的默认消息
-                        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                        
-                        keyboard_buttons = []
-                        for row in i.buttons:
-                            row_buttons = []
-                            for button in row:
-                                if "url" in button:
-                                    # URL 按钮
-                                    row_buttons.append(InlineKeyboardButton(
-                                        text=button["text"],
-                                        url=button["url"]
-                                    ))
-                                elif "callback_data" in button:
-                                    # 回调按钮
-                                    row_buttons.append(InlineKeyboardButton(
-                                        text=button["text"],
-                                        callback_data=button["callback_data"]
-                                    ))
-                                else:
-                                    # 默认回调按钮
-                                    row_buttons.append(InlineKeyboardButton(
-                                        text=button["text"],
-                                        callback_data=button.get("text", "")
-                                    ))
-                            keyboard_buttons.append(row_buttons)
-                        
-                        if keyboard_buttons:
-                            reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-                            # 发送带键盘的消息
-                            await self.client.send_message(
-                                text="📋 请选择操作：",
-                                reply_markup=reply_markup,
-                                **payload
-                            )
+                        # InlineKeyboard 已在预处理中处理，跳过
                         continue
                     else:
                         logger.warning(f"不支持的消息类型: {type(i)}")

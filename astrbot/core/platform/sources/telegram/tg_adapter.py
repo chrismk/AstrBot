@@ -360,58 +360,34 @@ class TelegramPlatformAdapter(Platform):
                 return
 
         elif update.message.voice:
-            try:
-                file = await update.message.voice.get_file()
-                message.message = [
-                    Comp.Record(file=file.file_path, url=file.file_path),
-                ]
-            except Exception as e:
-                logger.error(f"获取语音文件失败: {e}")
-                # 即使文件获取失败，也要创建Record组件，让插件能处理
-                message.message = [
-                    Comp.Record(file="", url=""),
-                ]
+            file = await update.message.voice.get_file()
+            message.message = [
+                Comp.Record(file=file.file_path, url=file.file_path),
+            ]
 
         elif update.message.photo:
-            try:
-                photo = update.message.photo[-1]  # get the largest photo
-                file = await photo.get_file()
-                message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
-                if update.message.caption:
-                    message.message_str = update.message.caption
-                    message.message.append(Comp.Plain(message.message_str))
-                if update.message.caption_entities:
-                    for entity in update.message.caption_entities:
-                        if entity.type == "mention":
-                            name = message.message_str[
-                                entity.offset + 1 : entity.offset + entity.length
-                            ]
-                            message.message.append(Comp.At(qq=name, name=name))
-            except Exception as e:
-                logger.error(f"获取图片文件失败: {e}")
-                # 即使文件获取失败，也要创建Image组件，让插件能处理
-                message.message.append(Comp.Image(file="", url=""))
-                if update.message.caption:
-                    message.message_str = update.message.caption
-                    message.message.append(Comp.Plain(message.message_str))
+            photo = update.message.photo[-1]  # get the largest photo
+            file = await photo.get_file()
+            message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            if update.message.caption:
+                message.message_str = update.message.caption
+                message.message.append(Comp.Plain(message.message_str))
+            if update.message.caption_entities:
+                for entity in update.message.caption_entities:
+                    if entity.type == "mention":
+                        name = message.message_str[
+                            entity.offset + 1 : entity.offset + entity.length
+                        ]
+                        message.message.append(Comp.At(qq=name, name=name))
 
         elif update.message.sticker:
-            try:
-                # 将sticker当作图片处理
-                file = await update.message.sticker.get_file()
-                message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
-                if update.message.sticker.emoji:
-                    sticker_text = f"Sticker: {update.message.sticker.emoji}"
-                    message.message_str = sticker_text
-                    message.message.append(Comp.Plain(sticker_text))
-            except Exception as e:
-                logger.error(f"获取贴纸文件失败: {e}")
-                # 即使文件获取失败，也要创建Image组件，让插件能处理
-                message.message.append(Comp.Image(file="", url=""))
-                if update.message.sticker.emoji:
-                    sticker_text = f"Sticker: {update.message.sticker.emoji}"
-                    message.message_str = sticker_text
-                    message.message.append(Comp.Plain(sticker_text))
+            # 将sticker当作图片处理
+            file = await update.message.sticker.get_file()
+            message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            if update.message.sticker.emoji:
+                sticker_text = f"Sticker: {update.message.sticker.emoji}"
+                message.message_str = sticker_text
+                message.message.append(Comp.Plain(sticker_text))
 
         elif update.message.document:
             try:
@@ -427,17 +403,10 @@ class TelegramPlatformAdapter(Platform):
                 ]
 
         elif update.message.video:
-            try:
-                file = await update.message.video.get_file()
-                message.message = [
-                    Comp.Video(file=file.file_path, path=file.file_path),
-                ]
-            except Exception as e:
-                logger.error(f"获取视频文件失败: {e}")
-                # 即使文件获取失败，也要创建Video组件，让插件能处理
-                message.message = [
-                    Comp.Video(file="", path=""),
-                ]
+            file = await update.message.video.get_file()
+            message.message = [
+                Comp.Video(file=file.file_path, path=file.file_path),
+            ]
 
         return message
 

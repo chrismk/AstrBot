@@ -193,6 +193,9 @@ class MessageEventResult(MessageChain):
 
     async_stream: Optional[AsyncGenerator] = None
     """异步流"""
+    
+    message_id: Optional[int] = None
+    """消息ID，用于标识发送的消息"""
 
     def stop_event(self) -> "MessageEventResult":
         """终止事件传播。"""

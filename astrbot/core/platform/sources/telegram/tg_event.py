@@ -2,7 +2,6 @@ import os
 import re
 import asyncio
 import telegramify_markdown
-from typing import Optional
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.platform import AstrBotMessage, PlatformMetadata, MessageType
 from astrbot.api.message_components import (
@@ -70,7 +69,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
     @classmethod
     async def send_with_client(
         cls, client: ExtBot, message: MessageChain, user_name: str
-    ) -> Optional[int]:
+    ):
         image_path = None
 
         has_reply = False
@@ -146,22 +145,19 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 payload["message_thread_id"] = message_thread_id
             
             chunks = cls._split_message(text_content)
-            last_message_id = None
             for chunk in chunks:
                 try:
                     md_text = telegramify_markdown.markdownify(
                         chunk, max_line_length=None, normalize_whitespace=False
                     )
-                    msg = await client.send_message(
+                    await client.send_message(
                         text=md_text, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload
                     )
-                    last_message_id = msg.message_id
                 except Exception as e:
                     logger.warning(
                         f"MarkdownV2 send failed: {e}. Using plain text instead."
                     )
-                    msg = await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
-                    last_message_id = msg.message_id
+                    await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
             used_keyboard = True
         elif text_content:
             # 只有文本内容，没有键盘
@@ -174,22 +170,19 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 payload["message_thread_id"] = message_thread_id
             
             chunks = cls._split_message(text_content)
-            last_message_id = None
             for chunk in chunks:
                 try:
                     md_text = telegramify_markdown.markdownify(
                         chunk, max_line_length=None, normalize_whitespace=False
                     )
-                    msg = await client.send_message(
+                    await client.send_message(
                         text=md_text, parse_mode="MarkdownV2", **payload
                     )
-                    last_message_id = msg.message_id
                 except Exception as e:
                     logger.warning(
                         f"MarkdownV2 send failed: {e}. Using plain text instead."
                     )
-                    msg = await client.send_message(text=chunk, **payload)
-                    last_message_id = msg.message_id
+                    await client.send_message(text=chunk, **payload)
         
         # 处理其他组件
         for i in other_components:
@@ -290,20 +283,12 @@ class TelegramPlatformEvent(AstrMessageEvent):
             elif isinstance(i, InlineKeyboard):
                 # InlineKeyboard 已在预处理中处理，跳过
                 continue
-        
-        # 返回最后发送的消息ID
-        return last_message_id
 
     async def send(self, message: MessageChain):
         if self.get_message_type() == MessageType.GROUP_MESSAGE:
-            message_id = await self.send_with_client(self.client, message, self.message_obj.group_id)
+            await self.send_with_client(self.client, message, self.message_obj.group_id)
         else:
-            message_id = await self.send_with_client(self.client, message, self.get_sender_id())
-        
-        # 设置消息ID到MessageEventResult
-        if hasattr(message, 'message_id'):
-            message.message_id = message_id
-            
+            await self.send_with_client(self.client, message, self.get_sender_id())
         await super().send(message)
 
     async def delete_message(self, message_id: int) -> bool:

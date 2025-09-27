@@ -1,25 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Quick rebuild and prune build caches
+echo "===================================="
+echo " 重建 AstrBot 服务 (仅后端容器)"
+echo "===================================="
 
-echo "[rebuild] Bringing down existing containers..."
-docker compose down
+# 解析项目根目录与 Compose 文件路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${SCRIPT_DIR}"
+COMPOSE_FILE="${PROJECT_ROOT}/compose.yml"
 
-echo "[rebuild] Pruning build cache and dangling images..."
-# Remove build cache first (before building)
-docker builder prune -f
-# Remove dangling images
-docker image prune -f
+echo "使用配置文件: ${COMPOSE_FILE}"
 
-echo "[rebuild] Building and starting containers..."
-docker compose up -d --build
+# 先下线服务（可选）
+echo "[rebuild] 停止并移除现有容器..."
+docker compose -f "${COMPOSE_FILE}" down || true
 
-echo "[rebuild] Final cleanup..."
-# Final cleanup after build
-docker builder prune -f
-docker image prune -f
+# 预清理，确保缓存不会干扰本次构建
+echo "[rebuild] 预清理构建缓存与悬空镜像..."
+docker builder prune -f || true
+docker image prune -f || true
 
-echo "[rebuild] Done."
+# 仅构建并更新 AstrBot 后端服务
+echo "[rebuild] 构建 astrbot 服务镜像..."
+docker compose -f "${COMPOSE_FILE}" build astrbot
+
+echo "[rebuild] 启动 astrbot 服务..."
+docker compose -f "${COMPOSE_FILE}" up -d astrbot
+
+# 收尾清理
+echo "[rebuild] 收尾清理构建缓存..."
+docker builder prune -f || true
+docker image prune -f || true
+
+echo "[rebuild] 完成。"
 
 

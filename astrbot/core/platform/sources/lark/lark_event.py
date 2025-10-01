@@ -244,6 +244,22 @@ class LarkMessageEvent(AstrMessageEvent):
             logger.error(f"飞书删除消息失败: {e}")
             return False
 
+    async def react(self, emoji: str):
+        request = (
+            CreateMessageReactionRequest.builder()
+            .message_id(self.message_obj.message_id)
+            .request_body(
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type(Emoji.builder().emoji_type(emoji).build())
+                .build()
+            )
+            .build()
+        )
+        response = await self.bot.im.v1.message_reaction.acreate(request)
+        if not response.success():
+            logger.error(f"发送飞书表情回应失败({response.code}): {response.msg}")
+            return None
+
     async def edit_message(self, message_id: str | None, text: str, keyboard: InlineKeyboard = None) -> bool:
         """编辑消息（支持文本和交互式按钮）。
         若未指定 message_id，默认使用当前上下文的 message_id（通常只能编辑机器人自己发送且平台允许的消息）。"""

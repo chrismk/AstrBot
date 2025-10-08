@@ -71,14 +71,8 @@ class LarkPlatformAdapter(Platform):
     async def send_by_session(
         self, session: MessageSesion, message_chain: MessageChain
     ):
-        res = await LarkMessageEvent._convert_to_lark(message_chain, self.lark_api)
-        wrapped = {
-            "zh_cn": {
-                "title": "",
-                "content": res,
-            }
-        }
-
+        content, msg_type = await LarkMessageEvent._convert_to_lark(message_chain, self.lark_api)
+        
         if session.message_type == MessageType.GROUP_MESSAGE:
             id_type = "chat_id"
             if "%" in session.session_id:
@@ -86,14 +80,15 @@ class LarkPlatformAdapter(Platform):
         else:
             id_type = "open_id"
 
+        # 发送消息（统一处理）
         request = (
             CreateMessageRequest.builder()
             .receive_id_type(id_type)
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(session.session_id)
-                .content(json.dumps(wrapped))
-                .msg_type("post")
+                .content(json.dumps(content))
+                .msg_type(msg_type)
                 .uuid(str(uuid.uuid4()))
                 .build()
             )
@@ -244,7 +239,7 @@ class LarkPlatformAdapter(Platform):
                 if hasattr(action, 'value') and action.value:
                     # 提取回调数据
                     callback_data = action.value.get('value', '')
-                    if callback_data.startswith('disk|'):
+                    if callback_data:
                         # 构造特殊的消息字符串，类似 Telegram 的处理方式
                         message_str = f"/callback {callback_data}"
                         

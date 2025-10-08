@@ -21,14 +21,29 @@ class LarkMessageEvent(AstrMessageEvent):
         self.bot = bot
 
     @staticmethod
-    async def _convert_to_lark(message: MessageChain, lark_client: lark.Client) -> List:
-        ret = []
-        _stage = []
+    async def _convert_to_lark(message: MessageChain, lark_client: lark.Client) -> tuple[dict, str]:
+        """转换消息链为飞书格式，返回 (message_content, message_type)
+        
+        Returns:
+            tuple: (消息内容, 消息类型)
+                - 如果有交互式按钮，返回交互式卡片和 "interactive"
+                - 否则返回富文本内容和 "post"
+        """
+        text_parts = []
+        at_parts = []
+        images = []
+        keyboard = None
+        has_files = False
+        
+        # 分离不同类型的组件
         for comp in message.chain:
             if isinstance(comp, Plain):
-                _stage.append({"tag": "md", "text": comp.text})
+                text_parts.append(comp.text)
             elif isinstance(comp, At):
-                _stage.append({"tag": "at", "user_id": comp.qq, "style": []})
+                at_parts.append({"tag": "at", "user_id": comp.qq, "style": []})
+            elif isinstance(comp, AstrBotFile):
+                # 文件需要单独处理，不能放在卡片中
+                has_files = True
             elif isinstance(comp, AstrBotImage):
                 file_path = ""
                 image_file = None
@@ -65,71 +80,121 @@ class LarkMessageEvent(AstrMessageEvent):
                 response = await lark_client.im.v1.image.acreate(request)
                 if not response.success():
                     logger.error(f"无法上传飞书图片({response.code}): {response.msg}")
-                image_key = response.data.image_key
-                logger.debug(image_key)
-                ret.append(_stage)
-                ret.append([{"tag": "img", "image_key": image_key}])
-                _stage.clear()
+                else:
+                    image_key = response.data.image_key
+                    logger.debug(image_key)
+                    images.append({"tag": "img", "image_key": image_key})
             elif isinstance(comp, InlineKeyboard):
-                # 处理内联键盘组件 - 转换为飞书消息卡片
-                if comp.buttons:
-                    # 创建消息卡片
-                    card_elements = []
-                    
-                    # 添加按钮
-                    for row in comp.buttons:
-                        for button in row:
-                            if "callback_data" in button:
-                                # 回调按钮 - 使用交互式按钮
-                                card_elements.append({
-                                    "tag": "button",
-                                    "text": {"tag": "plain_text", "content": button["text"]},
-                                    "type": "primary",
-                                    "value": {"key": "callback", "value": button["callback_data"]}
-                                })
-                            elif "url" in button:
-                                # URL 按钮 - 使用链接按钮
-                                card_elements.append({
-                                    "tag": "button",
-                                    "text": {"tag": "plain_text", "content": button["text"]},
-                                    "type": "default",
-                                    "url": button["url"]
-                                })
-                    
-                    if card_elements:
-                        # 创建消息卡片
-                        card_content = {
-                            "config": {"wide_screen_mode": True},
-                            "elements": card_elements
-                        }
-                        
-                        ret.append(_stage)
-                        ret.append([{"tag": "interactive", "card": card_content}])
-                        _stage.clear()
+                keyboard = comp
             else:
                 logger.warning(f"飞书 暂时不支持消息段: {comp.type}")
 
-        if _stage:
-            ret.append(_stage)
-        return ret
+        # 如果有交互式按钮，创建交互式卡片
+        if keyboard and keyboard.buttons:
+            card_elements = []
+            
+            # 添加文本内容（如果有）
+            combined_text = "".join(text_parts).strip()
+            if combined_text:
+                card_elements.append({
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": combined_text}
+                })
+            
+            # 添加 @ 提及（如果有）
+            if at_parts:
+                # 在交互式卡片中，@ 需要特殊处理，这里先作为文本显示
+                at_text = " ".join([f"@{at['user_id']}" for at in at_parts])
+                card_elements.append({
+                    "tag": "div", 
+                    "text": {"tag": "plain_text", "content": at_text}
+                })
+            
+            # 添加图片（如果有）
+            for img in images:
+                card_elements.append({
+                    "tag": "img",
+                    "img_key": img["image_key"],
+                    "alt": {"tag": "plain_text", "content": "图片"}
+                })
+            
+            # 添加按钮
+            for row in keyboard.buttons:
+                for button in row:
+                    if "callback_data" in button:
+                        # 回调按钮
+                        card_elements.append({
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": button["text"]},
+                            "type": "primary",
+                            "value": {"key": "callback", "value": button["callback_data"]}
+                        })
+                    elif "url" in button:
+                        # URL 按钮
+                        card_elements.append({
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": button["text"]},
+                            "type": "default",
+                            "url": button["url"]
+                        })
+            
+            # 确保卡片至少有一些内容
+            if not card_elements:
+                card_elements.append({
+                    "tag": "div",
+                    "text": {"tag": "plain_text", "content": " "}  # 空内容占位符
+                })
+            
+            # 创建交互式卡片
+            card_content = {
+                "config": {"wide_screen_mode": True},
+                "elements": card_elements
+            }
+            return card_content, "interactive"
+        
+        # 否则创建富文本消息
+        else:
+            content = []
+            stage = []
+            
+            # 添加文本和 @
+            for text in text_parts:
+                if text.strip():
+                    stage.append({"tag": "md", "text": text})
+            
+            for at in at_parts:
+                stage.append(at)
+            
+            if stage:
+                content.append(stage)
+            
+            # 添加图片
+            for img in images:
+                content.append([img])
+            
+            # 如果没有任何内容，添加一个空的文本段
+            if not content:
+                content.append([{"tag": "md", "text": " "}])  # 发送一个空格避免空消息
+            
+            wrapped = {
+                "zh_cn": {
+                    "title": "",
+                    "content": content,
+                }
+            }
+            return wrapped, "post"
 
     async def send(self, message: MessageChain):
-        res = await LarkMessageEvent._convert_to_lark(message, self.bot)
-        wrapped = {
-            "zh_cn": {
-                "title": "",
-                "content": res,
-            }
-        }
-
-        # 先发送富文本 Post（文本与图片）
-        post_req = (
+        content, msg_type = await LarkMessageEvent._convert_to_lark(message, self.bot)
+        
+        # 发送消息（统一处理）
+        req = (
             ReplyMessageRequest.builder()
             .message_id(self.message_obj.message_id)
             .request_body(
                 ReplyMessageRequestBody.builder()
-                .content(json.dumps(wrapped))
-                .msg_type("post")
+                .content(json.dumps(content))
+                .msg_type(msg_type)
                 .uuid(str(uuid.uuid4()))
                 .reply_in_thread(False)
                 .build()
@@ -137,9 +202,9 @@ class LarkMessageEvent(AstrMessageEvent):
             .build()
         )
 
-        post_resp = await self.bot.im.v1.message.areply(post_req)
-        if not post_resp.success():
-            logger.error(f"回复飞书消息失败({post_resp.code}): {post_resp.msg}")
+        resp = await self.bot.im.v1.message.areply(req)
+        if not resp.success():
+            logger.error(f"回复飞书消息失败({resp.code}): {resp.msg}")
 
         # 针对文件段，逐个上传并发送 file 消息
         for comp in message.chain:
@@ -262,16 +327,23 @@ class LarkMessageEvent(AstrMessageEvent):
 
     async def edit_message(self, message_id: str | None, text: str, keyboard: InlineKeyboard = None) -> bool:
         """编辑消息（支持文本和交互式按钮）。
-        若未指定 message_id，默认使用当前上下文的 message_id（通常只能编辑机器人自己发送且平台允许的消息）。"""
+        若未指定 message_id，默认使用当前上下文的 message_id（通常只能编辑机器人自己发送且平台允许的消息）。
+        注意：飞书不支持在同一消息中混合文本和交互式按钮，如果有键盘则只能编辑为交互式卡片。"""
         try:
             target_message_id = message_id or self.message_obj.message_id
             
-            # 构建消息内容
-            content = [[{"tag": "md", "text": text}]]
-            
-            # 如果有键盘，添加交互式按钮
             if keyboard and keyboard.buttons:
+                # 如果有键盘，创建交互式卡片
                 card_elements = []
+                
+                # 添加文本元素（如果有）
+                if text.strip():
+                    card_elements.append({
+                        "tag": "div",
+                        "text": {"tag": "lark_md", "content": text}
+                    })
+                
+                # 添加按钮
                 for row in keyboard.buttons:
                     for button in row:
                         if "callback_data" in button:
@@ -289,31 +361,44 @@ class LarkMessageEvent(AstrMessageEvent):
                                 "url": button["url"]
                             })
                 
-                if card_elements:
-                    card_content = {
-                        "config": {"wide_screen_mode": True},
-                        "elements": card_elements
-                    }
-                    content.append([{"tag": "interactive", "card": card_content}])
-            
-            wrapped = {
-                "zh_cn": {
-                    "title": "",
-                    "content": content,
+                card_content = {
+                    "config": {"wide_screen_mode": True},
+                    "elements": card_elements
                 }
-            }
-            
-            req = (
-                UpdateMessageRequest.builder()
-                .message_id(target_message_id)
-                .request_body(
-                    UpdateMessageRequestBody.builder()
-                    .content(json.dumps(wrapped))
-                    .msg_type("post")
+                
+                req = (
+                    UpdateMessageRequest.builder()
+                    .message_id(target_message_id)
+                    .request_body(
+                        UpdateMessageRequestBody.builder()
+                        .content(json.dumps(card_content))
+                        .msg_type("interactive")
+                        .build()
+                    )
                     .build()
                 )
-                .build()
-            )
+            else:
+                # 纯文本消息
+                content = [[{"tag": "md", "text": text}]]
+                wrapped = {
+                    "zh_cn": {
+                        "title": "",
+                        "content": content,
+                    }
+                }
+                
+                req = (
+                    UpdateMessageRequest.builder()
+                    .message_id(target_message_id)
+                    .request_body(
+                        UpdateMessageRequestBody.builder()
+                        .content(json.dumps(wrapped))
+                        .msg_type("post")
+                        .build()
+                    )
+                    .build()
+                )
+            
             resp = await self.bot.im.v1.message.aupdate(req)
             return bool(resp and resp.success())
         except Exception as e:

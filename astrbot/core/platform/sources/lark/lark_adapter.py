@@ -237,8 +237,10 @@ class LarkPlatformAdapter(Platform):
             if hasattr(event, 'event') and hasattr(event.event, 'action'):
                 action = event.event.action
                 if hasattr(action, 'value') and action.value:
-                    # 提取回调数据
-                    callback_data = action.value.get('value', '')
+                    # 提取回调数据 - 尝试多种格式
+                    callback_data = action.value.get('key', '') or action.value.get('value', '')
+                    logger.debug(f"[lark-interactive] 原始回调数据: {action.value}")
+                    logger.debug(f"[lark-interactive] 提取的回调数据: {callback_data}")
                     if callback_data:
                         # 构造特殊的消息字符串，类似 Telegram 的处理方式
                         message_str = f"/callback {callback_data}"

@@ -91,6 +91,7 @@ class LarkMessageEvent(AstrMessageEvent):
 
         # 如果有交互式按钮，创建交互式卡片
         if keyboard and keyboard.buttons:
+            logger.debug(f"[lark] 处理交互式键盘，按钮数量: {len(keyboard.buttons)}")
             card_elements = []
             
             # 添加文本内容（如果有）
@@ -119,24 +120,31 @@ class LarkMessageEvent(AstrMessageEvent):
                 })
             
             # 添加按钮
-            for row in keyboard.buttons:
-                for button in row:
+            for row_idx, row in enumerate(keyboard.buttons):
+                for btn_idx, button in enumerate(row):
+                    logger.debug(f"[lark] 处理按钮 [{row_idx}][{btn_idx}]: {button}")
                     if "callback_data" in button:
-                        # 回调按钮
-                        card_elements.append({
+                        # 回调按钮 - 根据飞书文档，value 字段应该直接包含回调数据
+                        button_element = {
                             "tag": "button",
                             "text": {"tag": "plain_text", "content": button["text"]},
                             "type": "primary",
-                            "value": {"key": "callback", "value": button["callback_data"]}
-                        })
+                            "value": {
+                                "key": button["callback_data"]  # 直接使用 callback_data 作为 key
+                            }
+                        }
+                        logger.debug(f"[lark] 创建回调按钮: {button_element}")
+                        card_elements.append(button_element)
                     elif "url" in button:
                         # URL 按钮
-                        card_elements.append({
+                        button_element = {
                             "tag": "button",
                             "text": {"tag": "plain_text", "content": button["text"]},
                             "type": "default",
                             "url": button["url"]
-                        })
+                        }
+                        logger.debug(f"[lark] 创建URL按钮: {button_element}")
+                        card_elements.append(button_element)
             
             # 确保卡片至少有一些内容
             if not card_elements:
@@ -150,6 +158,7 @@ class LarkMessageEvent(AstrMessageEvent):
                 "config": {"wide_screen_mode": True},
                 "elements": card_elements
             }
+            logger.debug(f"[lark] 最终卡片内容: {json.dumps(card_content, ensure_ascii=False, indent=2)}")
             return card_content, "interactive"
         
         # 否则创建富文本消息
@@ -185,7 +194,14 @@ class LarkMessageEvent(AstrMessageEvent):
             return wrapped, "post"
 
     async def send(self, message: MessageChain):
+        logger.debug(f"[lark] 开始发送消息，消息链长度: {len(message.chain)}")
+        for i, comp in enumerate(message.chain):
+            logger.debug(f"[lark] 消息组件 [{i}]: {type(comp).__name__} - {comp}")
+            
         content, msg_type = await LarkMessageEvent._convert_to_lark(message, self.bot)
+        
+        logger.debug(f"[lark] 消息类型: {msg_type}")
+        logger.debug(f"[lark] 发送内容: {json.dumps(content, ensure_ascii=False, indent=2)}")
         
         # 发送消息（统一处理）
         req = (
@@ -205,6 +221,8 @@ class LarkMessageEvent(AstrMessageEvent):
         resp = await self.bot.im.v1.message.areply(req)
         if not resp.success():
             logger.error(f"回复飞书消息失败({resp.code}): {resp.msg}")
+        else:
+            logger.debug(f"[lark] 消息发送成功，消息ID: {resp.data.message_id if resp.data else 'N/A'}")
 
         # 针对文件段，逐个上传并发送 file 消息
         for comp in message.chain:

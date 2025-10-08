@@ -28,7 +28,6 @@ class RespondStage(Stage):
         Comp.Image: lambda comp: bool(comp.file),  # 图片
         Comp.Reply: lambda comp: bool(comp.id) and comp.sender_id is not None,  # 回复
         Comp.Poke: lambda comp: comp.id != 0 and comp.qq != 0,  # 戳一戳
-        Comp.InlineKeyboard: lambda comp: bool(comp.buttons),  # 内联键盘
         Comp.Node: lambda comp: bool(comp.content),  # 转发节点
         Comp.Nodes: lambda comp: bool(comp.nodes),  # 多个转发节点
         Comp.File: lambda comp: bool(comp.file_ or comp.url),
@@ -125,7 +124,6 @@ class RespondStage(Stage):
             "qq_official",
             "weixin_official_account",
             "dingtalk",
-            "lark",  # 飞书支持交互式卡片，需要整合发送
         ]:
             return False
 

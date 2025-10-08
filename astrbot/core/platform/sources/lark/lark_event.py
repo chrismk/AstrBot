@@ -94,8 +94,21 @@ class LarkMessageEvent(AstrMessageEvent):
             logger.debug(f"[lark] 处理交互式键盘，按钮数量: {len(keyboard.buttons)}")
             card_elements = []
             
-            # 添加文本内容（如果有）
+            # 上下布局：图片在上，文本在中，按钮在下（类似Telegram）
             combined_text = "".join(text_parts).strip()
+            
+            # 1. 添加图片（如果有）
+            for img in images:
+                card_elements.append({
+                    "tag": "img",
+                    "img_key": img["image_key"],
+                    "alt": {"tag": "plain_text", "content": "封面"},
+                    "scale_type": "crop_center",  # 居中裁剪
+                    "size": "large",              # 大图，160×160，适合封面
+                    "preview": True               # 支持点击预览
+                })
+            
+            # 2. 添加文本内容（如果有）
             if combined_text:
                 card_elements.append({
                     "tag": "div",
@@ -104,47 +117,48 @@ class LarkMessageEvent(AstrMessageEvent):
             
             # 添加 @ 提及（如果有）
             if at_parts:
-                # 在交互式卡片中，@ 需要特殊处理，这里先作为文本显示
                 at_text = " ".join([f"@{at['user_id']}" for at in at_parts])
                 card_elements.append({
                     "tag": "div", 
                     "text": {"tag": "plain_text", "content": at_text}
                 })
             
-            # 添加图片（如果有）
-            for img in images:
-                card_elements.append({
-                    "tag": "img",
-                    "img_key": img["image_key"],
-                    "alt": {"tag": "plain_text", "content": "图片"}
-                })
-            
-            # 添加按钮
-            for row_idx, row in enumerate(keyboard.buttons):
-                for btn_idx, button in enumerate(row):
-                    logger.debug(f"[lark] 处理按钮 [{row_idx}][{btn_idx}]: {button}")
-                    if "callback_data" in button:
-                        # 回调按钮 - 根据飞书文档，value 字段应该直接包含回调数据
-                        button_element = {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": button["text"]},
-                            "type": "primary",
-                            "value": {
-                                "key": button["callback_data"]  # 直接使用 callback_data 作为 key
+            # 添加按钮 - 使用 action 容器
+            if keyboard.buttons:
+                # 收集所有按钮
+                button_elements = []
+                for row_idx, row in enumerate(keyboard.buttons):
+                    for btn_idx, button in enumerate(row):
+                        logger.debug(f"[lark] 处理按钮 [{row_idx}][{btn_idx}]: {button}")
+                        if "callback_data" in button:
+                            # 回调按钮
+                            button_element = {
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": button["text"]},
+                                "type": "primary",
+                                "value": {
+                                    "key": button["callback_data"]
+                                }
                             }
-                        }
-                        logger.debug(f"[lark] 创建回调按钮: {button_element}")
-                        card_elements.append(button_element)
-                    elif "url" in button:
-                        # URL 按钮
-                        button_element = {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": button["text"]},
-                            "type": "default",
-                            "url": button["url"]
-                        }
-                        logger.debug(f"[lark] 创建URL按钮: {button_element}")
-                        card_elements.append(button_element)
+                            logger.debug(f"[lark] 创建回调按钮: {button_element}")
+                            button_elements.append(button_element)
+                        elif "url" in button:
+                            # URL 按钮
+                            button_element = {
+                                "tag": "button",
+                                "text": {"tag": "plain_text", "content": button["text"]},
+                                "type": "default",
+                                "url": button["url"]
+                            }
+                            logger.debug(f"[lark] 创建URL按钮: {button_element}")
+                            button_elements.append(button_element)
+                
+                # 将按钮放在 action 容器中
+                if button_elements:
+                    card_elements.append({
+                        "tag": "action",
+                        "actions": button_elements
+                    })
             
             # 确保卡片至少有一些内容
             if not card_elements:

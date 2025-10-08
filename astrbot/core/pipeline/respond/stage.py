@@ -125,6 +125,7 @@ class RespondStage(Stage):
             "qq_official",
             "weixin_official_account",
             "dingtalk",
+            "lark",  # 飞书支持交互式卡片，需要整合发送
         ]:
             return False
 

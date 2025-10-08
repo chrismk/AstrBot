@@ -40,22 +40,19 @@ class LarkPlatformAdapter(Platform):
         if not self.bot_name:
             logger.warning("未设置飞书机器人名称，@ 机器人可能得不到回复。")
 
-        async def on_msg_event_recv(event: lark.im.v1.P2ImMessageReceiveV1):
-            await self.convert_msg(event)
-        
-        async def on_interactive_event_recv(event: lark.im.v1.P2ImMessageReceiveV1):
-            await self.convert_interactive_msg(event)
+        async def unified_msg_handler(event: lark.im.v1.P2ImMessageReceiveV1):
+            # 检查是否是交互式回调
+            if hasattr(event, 'event') and hasattr(event.event, 'action'):
+                await self.convert_interactive_msg(event)
+            else:
+                await self.convert_msg(event)
 
-        def do_v2_msg_event(event: lark.im.v1.P2ImMessageReceiveV1):
-            asyncio.create_task(on_msg_event_recv(event))
-        
-        def do_interactive_event(event: lark.im.v1.P2ImMessageReceiveV1):
-            asyncio.create_task(on_interactive_event_recv(event))
+        def do_unified_msg_event(event: lark.im.v1.P2ImMessageReceiveV1):
+            asyncio.create_task(unified_msg_handler(event))
 
         self.event_handler = (
             lark.EventDispatcherHandler.builder("", "")
-            .register_p2_im_message_receive_v1(do_v2_msg_event)
-            .register_p2_im_message_receive_v1(do_interactive_event)  # 注册交互式按钮回调
+            .register_p2_im_message_receive_v1(do_unified_msg_event)
             .build()
         )
 

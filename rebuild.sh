@@ -12,6 +12,12 @@ COMPOSE_FILE="${PROJECT_ROOT}/compose.yml"
 
 echo "使用配置文件: ${COMPOSE_FILE}"
 
+# 拉取最新代码
+echo "[rebuild] 拉取最新代码..."
+git pull || {
+    echo "警告: git pull 失败，继续使用当前代码"
+}
+
 # 先下线服务（可选）
 echo "[rebuild] 停止并移除现有容器..."
 docker compose -f "${COMPOSE_FILE}" down || true

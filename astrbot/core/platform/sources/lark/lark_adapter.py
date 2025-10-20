@@ -2,6 +2,7 @@ import base64
 import asyncio
 import json
 import re
+import time
 import uuid
 import astrbot.api.message_components as Comp
 
@@ -15,6 +16,7 @@ from astrbot.api.platform import (
 from astrbot.api.event import MessageChain
 from astrbot.core.platform.astr_message_event import MessageSesion
 from .lark_event import LarkMessageEvent
+from .card_service import get_card_service
 from ...register import register_platform_adapter
 from astrbot import logger
 import lark_oapi as lark
@@ -50,9 +52,48 @@ class LarkPlatformAdapter(Platform):
         def do_unified_msg_event(event: lark.im.v1.P2ImMessageReceiveV1):
             asyncio.create_task(unified_msg_handler(event))
 
+        # 卡片交互回调处理
+        def do_card_action_trigger(event):
+            """处理卡片交互回调事件"""
+            logger.debug(f"[lark-card-action] 收到卡片交互事件: {event}")
+            
+            # 解析操作类型以返回相应的Toast消息
+            toast_message = "操作已处理"
+            toast_message_en = "Operation processed"
+            toast_type = "info"
+            
+            try:
+                if hasattr(event, 'event') and hasattr(event.event, 'action'):
+                    action = event.event.action
+                    if hasattr(action, 'value') and action.value:
+                        toast_message = "后台正在处理中..."
+                        toast_message_en = "Background is processing..."
+                        toast_type = "info"
+            except Exception as e:
+                logger.warning(f"[lark-card-action] 解析操作类型失败: {e}")
+            
+            # 异步处理实际的业务逻辑（不阻塞回调响应）
+            asyncio.create_task(self.convert_card_action_msg(event))
+            
+            # 立即返回Toast响应
+            response = {
+                "toast": {
+                    "type": toast_type,
+                    "content": toast_message,
+                    "i18n": {
+                        "zh_cn": toast_message,
+                        "en_us": toast_message_en
+                    }
+                }
+            }
+            
+            logger.debug(f"[lark-card-action] 返回回调响应: {response}")
+            return response
+
         self.event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(do_unified_msg_event)
+            .register_p2_card_action_trigger(do_card_action_trigger)
             .build()
         )
 
@@ -67,6 +108,9 @@ class LarkPlatformAdapter(Platform):
         self.lark_api = (
             lark.Client.builder().app_id(self.appid).app_secret(self.appsecret).build()
         )
+        
+        # 初始化卡片服务
+        self.card_service = get_card_service(self.appid, self.appsecret)
 
     async def send_by_session(
         self, session: MessageSesion, message_chain: MessageChain
@@ -216,6 +260,8 @@ class LarkPlatformAdapter(Platform):
             session_id=abm.session_id,
             bot=self.lark_api,
         )
+        # 注入卡片服务
+        event.card_service = self.card_service
 
         self._event_queue.put_nowait(event)
 
@@ -230,49 +276,77 @@ class LarkPlatformAdapter(Platform):
     def get_client(self) -> lark.Client:
         return self.client
     
-    async def convert_interactive_msg(self, event: lark.im.v1.P2ImMessageReceiveV1):
-        """处理飞书交互式按钮回调事件"""
+    async def convert_card_action_msg(self, event):
+        """处理飞书卡片交互回调事件（异步版本，用于后台处理）"""
         try:
-            # 解析交互式按钮回调数据
+            # 解析卡片交互回调数据
             if hasattr(event, 'event') and hasattr(event.event, 'action'):
                 action = event.event.action
                 if hasattr(action, 'value') and action.value:
-                    # 提取回调数据 - 尝试多种格式
-                    callback_data = action.value.get('key', '') or action.value.get('value', '')
-                    logger.debug(f"[lark-interactive] 原始回调数据: {action.value}")
-                    logger.debug(f"[lark-interactive] 提取的回调数据: {callback_data}")
-                    if callback_data:
-                        # 构造特殊的消息字符串，类似 Telegram 的处理方式
-                        message_str = f"/callback {callback_data}"
-                        
-                        # 创建 AstrBotMessage
-                        abm = AstrBotMessage(
-                            message_str=message_str,
-                            message_type=MessageType.GROUP_MESSAGE if hasattr(event.event, 'chat_id') else MessageType.PRIVATE_MESSAGE,
-                            sender=MessageMember(
-                                user_id=event.event.sender.sender_id.user_id,
-                                username=event.event.sender.sender_id.get('open_id', ''),
-                                nickname=event.event.sender.sender_id.get('open_id', ''),
-                            ),
-                            group_id=event.event.chat_id if hasattr(event.event, 'chat_id') else None,
-                            session_id=event.event.chat_id if hasattr(event.event, 'chat_id') else event.event.sender.sender_id.user_id,
-                            platform_meta=PlatformMetadata(
-                                platform_name="lark",
-                                platform_id=self.appid,
-                                platform_type="lark",
-                                platform_version="1.0.0",
-                            ),
-                            message_id=str(event.event.message_id),
-                            timestamp=event.event.create_time,
-                            is_wake=True,  # 标记为唤醒消息
-                            is_at_or_wake_command=True,  # 标记为命令消息
-                        )
-                        
-                        # 设置 LLM 调用标记
-                        abm.should_call_llm(True)
-                        
-                        logger.debug(f"[lark-interactive] 处理交互式按钮回调: {callback_data}")
-                        await self.handle_msg(abm)
+                    # 将完整的 action.value 作为 JSON 字符串传递给插件处理
+                    callback_data = json.dumps(action.value, ensure_ascii=False)
+                    
+                    logger.debug(f"[lark-card-action] 原始回调数据: {action.value}")
+                    logger.debug(f"[lark-card-action] 传递给插件的回调数据: {callback_data}")
+                    
+                    # 构造特殊的消息字符串，将完整的回调数据传递给插件
+                    message_str = f"/callback {callback_data}"
+                    
+                    # 获取用户和会话信息
+                    operator = event.event.operator
+                    context = event.event.context
+                    
+                    # 获取token用于延时更新卡片
+                    token = getattr(event.event, 'token', None)
+                    
+                    # 创建 AstrBotMessage
+                    abm = AstrBotMessage()
+                    abm.message_str = message_str
+                    abm.message = [Comp.Plain(message_str)]  # 创建Plain消息组件
+                    abm.raw_message = event  # 原始事件对象
+                    abm.type = MessageType.GROUP_MESSAGE if hasattr(context, 'open_chat_id') else MessageType.PRIVATE_MESSAGE
+                    
+                    # 确保 user_id 不为 None
+                    user_id = None
+                    if hasattr(operator, 'user_id') and operator.user_id:
+                        user_id = operator.user_id
+                    elif hasattr(operator, 'open_id') and operator.open_id:
+                        user_id = operator.open_id
+                    else:
+                        user_id = "unknown_user"  # 提供默认值
+                    
+                    abm.sender = MessageMember(
+                        user_id=user_id,
+                        nickname=operator.open_id if hasattr(operator, 'open_id') and operator.open_id else "Unknown",
+                    )
+                    abm.group_id = context.open_chat_id if hasattr(context, 'open_chat_id') else None
+                    
+                    # 确保 session_id 不为 None
+                    if hasattr(context, 'open_chat_id') and context.open_chat_id:
+                        abm.session_id = context.open_chat_id
+                    elif hasattr(operator, 'open_id') and operator.open_id:
+                        abm.session_id = operator.open_id
+                    else:
+                        abm.session_id = user_id  # 使用已经确保不为None的user_id
+                    abm.self_id = self.appid  # 机器人ID
+                    abm.platform_meta = PlatformMetadata(
+                        name="lark",
+                        description="飞书平台",
+                        id=self.appid,
+                    )
+                    abm.message_id = context.open_message_id if hasattr(context, 'open_message_id') else str(event.event.token)
+                    abm.timestamp = int(time.time())
+                    abm.is_wake = True  # 标记为唤醒消息
+                    abm.is_at_or_wake_command = True  # 标记为命令消息
+                    
+                    # 添加飞书特有的token信息用于延时更新卡片
+                    if token:
+                        abm.lark_card_token = token
+                        logger.debug(f"[lark-card-action] 获取到卡片更新token: {token}")
+                    
+                    logger.debug(f"[lark-card-action] 处理卡片交互回调，传递给插件处理")
+                    await self.handle_msg(abm)
                         
         except Exception as e:
-            logger.error(f"[lark-interactive] 处理交互式按钮回调失败: {e}")
+            logger.error(f"[lark-card-action] 处理卡片交互回调失败: {e}")
+

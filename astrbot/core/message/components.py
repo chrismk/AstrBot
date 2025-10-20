@@ -894,13 +894,31 @@ class InlineKeyboard(BaseMessageComponent):
         self.buttons.append(list(buttons))
         return self
     
-    def add_button(self, text: str, callback_data: str = None, url: str = None, **kwargs):
-        """添加单个按钮到当前行"""
+    def add_button(self, text: str, callback_data: str = None, url: str = None, 
+                   button_type: str = None, button_size: str = None, button_width: str = None, **kwargs):
+        """
+        添加单个按钮到当前行
+        
+        Args:
+            text: 按钮文本
+            callback_data: 回调数据
+            url: 链接地址
+            button_type: 按钮类型 (primary, default, danger, text)
+            button_size: 按钮大小 (small, medium, large, tiny)
+            button_width: 按钮宽度 (default, fill, 或自定义宽度如120px)
+            **kwargs: 其他按钮属性
+        """
         button = {"text": text}
         if callback_data:
             button["callback_data"] = callback_data
         if url:
             button["url"] = url
+        if button_type:
+            button["button_type"] = button_type
+        if button_size:
+            button["button_size"] = button_size
+        if button_width:
+            button["button_width"] = button_width
         button.update(kwargs)
         
         if not self.buttons:

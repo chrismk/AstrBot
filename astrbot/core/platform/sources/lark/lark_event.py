@@ -5,6 +5,7 @@ import base64
 import lark_oapi as lark
 from io import BytesIO
 from typing import List
+import aiohttp
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Plain, Image as AstrBotImage, At, File as AstrBotFile, InlineKeyboard
 from astrbot.core.utils.io import download_image_by_url
@@ -104,7 +105,6 @@ class LarkMessageEvent(AstrMessageEvent):
                     "img_key": img["image_key"],
                     "alt": {"tag": "plain_text", "content": "封面"},
                     "scale_type": "crop_center",  # 居中裁剪
-                    "size": "large",              # 大图，160×160，适合封面
                     "preview": True               # 支持点击预览
                 })
             
@@ -131,26 +131,123 @@ class LarkMessageEvent(AstrMessageEvent):
                     for btn_idx, button in enumerate(row):
                         logger.debug(f"[lark] 处理按钮 [{row_idx}][{btn_idx}]: {button}")
                         if "callback_data" in button:
-                            # 回调按钮
+                            # 飞书回调按钮 - 解析callback_data为结构化数据
+                            callback_data = button["callback_data"]
+                            # 获取按钮类型，默认为 primary
+                            button_type = button.get("button_type", "primary")
                             button_element = {
                                 "tag": "button",
                                 "text": {"tag": "plain_text", "content": button["text"]},
-                                "type": "primary",
+                                "type": button_type,
                                 "value": {
-                                    "key": button["callback_data"]
+                                    "action": "callback",
+                                    "data": callback_data
                                 }
                             }
+                            # 添加按钮大小（如果指定）
+                            if "button_size" in button:
+                                button_element["size"] = button["button_size"]
+                            # 添加按钮宽度（如果指定）
+                            if "button_width" in button:
+                                button_element["width"] = button["button_width"]
                             logger.debug(f"[lark] 创建回调按钮: {button_element}")
                             button_elements.append(button_element)
                         elif "url" in button:
-                            # URL 按钮
-                            button_element = {
-                                "tag": "button",
-                                "text": {"tag": "plain_text", "content": button["text"]},
-                                "type": "default",
-                                "url": button["url"]
-                            }
-                            logger.debug(f"[lark] 创建URL按钮: {button_element}")
+                            # 检查是否是Telegram链接，如果是则转换为飞书回调
+                            url = button["url"]
+                            if "t.me/zslraibot" in url:
+                                # 解析Telegram深度链接参数
+                                if "start=" in url:
+                                    start_param = url.split("start=")[1]
+                                    
+                                    # 根据不同的操作类型创建回调按钮
+                                    if start_param.startswith("gb_"):
+                                        # PDF下载按钮
+                                        parts = start_param.split("_")
+                                        if len(parts) >= 3:
+                                            ssid = parts[1]
+                                            file_id = "_".join(parts[2:])
+                                            # 获取按钮类型，默认为 primary
+                                            button_type = button.get("button_type", "primary")
+                                            button_element = {
+                                                "tag": "button",
+                                                "text": {"tag": "plain_text", "content": button["text"]},
+                                                "type": button_type,
+                                                "value": {
+                                                    "action": "download_pdf",
+                                                    "ssid": ssid,
+                                                    "file_id": file_id
+                                                }
+                                            }
+                                            # 添加按钮大小（如果指定）
+                                            if "button_size" in button:
+                                                button_element["size"] = button["button_size"]
+                                        else:
+                                            # 降级为URL按钮
+                                            button_type = button.get("button_type", "default")
+                                            button_element = {
+                                                "tag": "button",
+                                                "text": {"tag": "plain_text", "content": button["text"]},
+                                                "type": button_type,
+                                                "url": url
+                                            }
+                                            # 添加按钮大小（如果指定）
+                                            if "button_size" in button:
+                                                button_element["size"] = button["button_size"]
+                                    elif start_param.startswith("ai_interpret_"):
+                                        # AI解读按钮
+                                        ssid = start_param.replace("ai_interpret_", "")
+                                        button_type = button.get("button_type", "default")
+                                        button_element = {
+                                            "tag": "button",
+                                            "text": {"tag": "plain_text", "content": button["text"]},
+                                            "type": button_type,
+                                            "value": {
+                                                "action": "ai_interpret",
+                                                "ssid": ssid
+                                            }
+                                        }
+                                        # 添加按钮大小（如果指定）
+                                        if "button_size" in button:
+                                            button_element["size"] = button["button_size"]
+                                    else:
+                                        # 其他情况，保持URL按钮
+                                        button_type = button.get("button_type", "default")
+                                        button_element = {
+                                            "tag": "button",
+                                            "text": {"tag": "plain_text", "content": button["text"]},
+                                            "type": button_type,
+                                            "url": url
+                                        }
+                                        # 添加按钮大小（如果指定）
+                                        if "button_size" in button:
+                                            button_element["size"] = button["button_size"]
+                                else:
+                                    # 没有start参数，保持URL按钮
+                                    button_type = button.get("button_type", "default")
+                                    button_element = {
+                                        "tag": "button",
+                                        "text": {"tag": "plain_text", "content": button["text"]},
+                                        "type": button_type,
+                                        "url": url
+                                    }
+                                    # 添加按钮大小（如果指定）
+                                    if "button_size" in button:
+                                        button_element["size"] = button["button_size"]
+                            else:
+                                # 非Telegram链接，保持URL按钮
+                                # 获取按钮类型，默认为 default
+                                button_type = button.get("button_type", "default")
+                                button_element = {
+                                    "tag": "button",
+                                    "text": {"tag": "plain_text", "content": button["text"]},
+                                    "type": button_type,
+                                    "url": url
+                                }
+                                # 添加按钮大小（如果指定）
+                                if "button_size" in button:
+                                    button_element["size"] = button["button_size"]
+                            logger.debug(f"[lark] 创建按钮: {button_element}")
                             button_elements.append(button_element)
                 
                 # 将按钮放在 action 容器中
@@ -169,7 +266,10 @@ class LarkMessageEvent(AstrMessageEvent):
             
             # 创建交互式卡片
             card_content = {
-                "config": {"wide_screen_mode": True},
+                "config": {
+                    "wide_screen_mode": True,
+                    "update_multi": True
+                },
                 "elements": card_elements
             }
             logger.debug(f"[lark] 最终卡片内容: {json.dumps(card_content, ensure_ascii=False, indent=2)}")
@@ -375,26 +475,53 @@ class LarkMessageEvent(AstrMessageEvent):
                         "text": {"tag": "lark_md", "content": text}
                     })
                 
-                # 添加按钮
+                # 添加按钮 - 使用与chain_result相同的action容器格式
                 for row in keyboard.buttons:
+                    button_elements = []
                     for button in row:
                         if "callback_data" in button:
-                            card_elements.append({
+                            button_type = button.get("button_type", "primary")
+                            button_element = {
                                 "tag": "button",
                                 "text": {"tag": "plain_text", "content": button["text"]},
-                                "type": "primary",
-                                "value": {"key": "callback", "value": button["callback_data"]}
-                            })
+                                "type": button_type,
+                                "value": {"action": "callback", "data": button["callback_data"]}
+                            }
+                            # 添加按钮大小（如果指定）
+                            if "button_size" in button:
+                                button_element["size"] = button["button_size"]
+                            # 添加按钮宽度（如果指定）
+                            if "button_width" in button:
+                                button_element["width"] = button["button_width"]
+                            button_elements.append(button_element)
                         elif "url" in button:
-                            card_elements.append({
+                            button_type = button.get("button_type", "default")
+                            button_element = {
                                 "tag": "button",
                                 "text": {"tag": "plain_text", "content": button["text"]},
-                                "type": "default",
+                                "type": button_type,
                                 "url": button["url"]
-                            })
+                            }
+                            # 添加按钮大小（如果指定）
+                            if "button_size" in button:
+                                button_element["size"] = button["button_size"]
+                            # 添加按钮宽度（如果指定）
+                            if "button_width" in button:
+                                button_element["width"] = button["button_width"]
+                            button_elements.append(button_element)
+                    
+                    # 将按钮放在 action 容器中（与chain_result格式一致）
+                    if button_elements:
+                        card_elements.append({
+                            "tag": "action",
+                            "actions": button_elements
+                        })
                 
                 card_content = {
-                    "config": {"wide_screen_mode": True},
+                    "config": {
+                        "wide_screen_mode": True,
+                        "update_multi": True
+                    },
                     "elements": card_elements
                 }
                 
@@ -449,3 +576,17 @@ class LarkMessageEvent(AstrMessageEvent):
         buffer.squash_plain()
         await self.send(buffer)
         return await super().send_streaming(generator, use_fallback)
+    
+    async def update_card_delayed(self, token: str, text: str, keyboard: InlineKeyboard = None) -> bool:
+        """使用飞书延时更新卡片API更新消息卡片"""
+        if hasattr(self, 'card_service') and self.card_service:
+            success = await self.card_service.update_card(token, text, keyboard)
+            if success:
+                # 卡片更新成功，中止消息流转，避免调用LLM
+                logger.debug("[lark-card-update] 卡片更新成功，中止消息流转")
+                self.stop_event()
+            return success
+        else:
+            logger.error("[lark-card-update] 卡片服务未初始化")
+            return False
+    

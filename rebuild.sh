@@ -12,6 +12,35 @@ COMPOSE_FILE="${PROJECT_ROOT}/compose.yml"
 
 echo "使用配置文件: ${COMPOSE_FILE}"
 
+# 检查 compose.yml 是否配置为本地构建
+echo "[rebuild] 检查 compose.yml 配置..."
+if grep -q "image: soulter/astrbot" "${COMPOSE_FILE}"; then
+    echo "错误: compose.yml 配置为使用远程镜像 'soulter/astrbot'"
+    echo "这将导致使用官方镜像而不是本地代码构建"
+    echo ""
+    echo "请修改 compose.yml，将:"
+    echo "  image: soulter/astrbot:latest"
+    echo "改为:"
+    echo "  build:"
+    echo "    context: ."
+    echo "    dockerfile: Dockerfile"
+    echo "  image: astrbot:local"
+    echo ""
+    exit 1
+fi
+
+if ! grep -q "build:" "${COMPOSE_FILE}"; then
+    echo "警告: compose.yml 中未找到 'build:' 配置"
+    echo "请确认是否正确配置了本地构建"
+    read -p "是否继续? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+echo "✓ compose.yml 配置检查通过"
+
 # 拉取最新代码
 echo "[rebuild] 拉取最新代码..."
 git pull || {

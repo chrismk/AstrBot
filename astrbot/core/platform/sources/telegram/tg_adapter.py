@@ -8,6 +8,10 @@ from telegram import BotCommand, Update
 from telegram.constants import ChatType
 from telegram.ext import ApplicationBuilder, ContextTypes, ExtBot, filters
 from telegram.ext import MessageHandler as TelegramMessageHandler
+from telegram.ext import CallbackQueryHandler
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+import aiohttp
+import telegramify_markdown
 
 import astrbot.api.message_components as Comp
 from astrbot.api import logger
@@ -37,10 +41,7 @@ else:
 @register_platform_adapter("telegram", "telegram 适配器")
 class TelegramPlatformAdapter(Platform):
     def __init__(
-        self,
-        platform_config: dict,
-        platform_settings: dict,
-        event_queue: asyncio.Queue,
+        self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue
     ) -> None:
         super().__init__(event_queue)
         self.config = platform_config
@@ -48,15 +49,13 @@ class TelegramPlatformAdapter(Platform):
         self.client_self_id = uuid.uuid4().hex[:8]
 
         base_url = self.config.get(
-            "telegram_api_base_url",
-            "https://api.telegram.org/bot",
+            "telegram_api_base_url", "https://api.telegram.org/bot"
         )
         if not base_url:
             base_url = "https://api.telegram.org/bot"
 
         file_base_url = self.config.get(
-            "telegram_file_base_url",
-            "https://api.telegram.org/file/bot",
+            "telegram_file_base_url", "https://api.telegram.org/file/bot"
         )
         if not file_base_url:
             file_base_url = "https://api.telegram.org/file/bot"
@@ -64,12 +63,10 @@ class TelegramPlatformAdapter(Platform):
         self.base_url = base_url
 
         self.enable_command_register = self.config.get(
-            "telegram_command_register",
-            True,
+            "telegram_command_register", True
         )
         self.enable_command_refresh = self.config.get(
-            "telegram_command_auto_refresh",
-            True,
+            "telegram_command_auto_refresh", True
         )
         self.last_command_hash = None
 
@@ -85,6 +82,8 @@ class TelegramPlatformAdapter(Platform):
             callback=self.message_handler,
         )
         self.application.add_handler(message_handler)
+        # Generic callback handler (adapter remains business-agnostic)
+        self.application.add_handler(CallbackQueryHandler(self.callback_handler))
         self.client = self.application.bot
         logger.debug(f"Telegram base url: {self.client.base_url}")
 
@@ -92,15 +91,11 @@ class TelegramPlatformAdapter(Platform):
 
     @override
     async def send_by_session(
-        self,
-        session: MessageSesion,
-        message_chain: MessageChain,
+        self, session: MessageSesion, message_chain: MessageChain
     ):
         from_username = session.session_id
         await TelegramPlatformEvent.send_with_client(
-            self.client,
-            message_chain,
-            from_username,
+            self.client, message_chain, from_username
         )
         await super().send_by_session(session, message_chain)
 
@@ -135,6 +130,63 @@ class TelegramPlatformAdapter(Platform):
         logger.info("Telegram Platform Adapter is running.")
         await queue
 
+    async def callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Generic callback passthrough: convert to a normal message event with a special prefix.
+        Plugins can listen by checking message_str prefix or future callback filters.
+        """
+        query = update.callback_query
+        if not query:
+            return
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        # Convert to a message-like event and dispatch
+        abm = AstrBotMessage()
+        chat = query.message.chat
+        abm.session_id = str(chat.id)
+        if chat.type == ChatType.PRIVATE:
+            abm.type = MessageType.FRIEND_MESSAGE
+        else:
+            abm.type = MessageType.GROUP_MESSAGE
+            abm.group_id = str(chat.id)
+            if getattr(query.message, "message_thread_id", None):
+                abm.group_id += "#" + str(query.message.message_thread_id)
+                abm.session_id = abm.group_id
+        abm.message_id = str(query.message.message_id)
+        abm.sender = MessageMember(str(query.from_user.id), query.from_user.username)
+        abm.self_id = str(context.bot.username)
+        abm.raw_message = update
+        # Use a reserved slash-command for callback messages (so plugins can receive via command filter)
+        data = query.data or ""
+        abm.message_str = f"/callback {data}"
+        abm.message = [Comp.Plain(abm.message_str)]
+        message_event = TelegramPlatformEvent(
+            message_str=abm.message_str,
+            message_obj=abm,
+            platform_meta=self.meta(),
+            session_id=abm.session_id,
+            client=self.client,
+        )
+        # mark as command-like; parse llm flag (llm=0 disables default LLM)
+        try:
+            message_event.is_wake = True
+            message_event.is_at_or_wake_command = True
+            llm_disable = True
+            if data and "llm=" in data:
+                try:
+                    parts = {kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in data.split("|") if "=" in kv}
+                    llm_disable = parts.get("llm", "0") != "1"
+                except Exception:
+                    llm_disable = True
+            if llm_disable:
+                message_event.should_call_llm(True)
+            else:
+                message_event.should_call_llm(False)
+        except Exception:
+            pass
+        self.commit_event(message_event)
+
     async def register_commands(self):
         """收集所有注册的指令并注册到 Telegram"""
         try:
@@ -142,7 +194,7 @@ class TelegramPlatformAdapter(Platform):
 
             if commands:
                 current_hash = hash(
-                    tuple((cmd.command, cmd.description) for cmd in commands),
+                    tuple((cmd.command, cmd.description) for cmd in commands)
                 )
                 if current_hash == self.last_command_hash:
                     return
@@ -164,9 +216,7 @@ class TelegramPlatformAdapter(Platform):
                 continue
             for event_filter in handler_metadata.event_filters:
                 cmd_info = self._extract_command_info(
-                    event_filter,
-                    handler_metadata,
-                    skip_commands,
+                    event_filter, handler_metadata, skip_commands
                 )
                 if cmd_info:
                     cmd_name, description = cmd_info
@@ -177,9 +227,7 @@ class TelegramPlatformAdapter(Platform):
 
     @staticmethod
     def _extract_command_info(
-        event_filter,
-        handler_metadata,
-        skip_commands: set,
+        event_filter, handler_metadata, skip_commands: set
     ) -> tuple[str, str] | None:
         """从事件过滤器中提取指令信息"""
         cmd_name = None
@@ -214,12 +262,11 @@ class TelegramPlatformAdapter(Platform):
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not update.effective_chat:
             logger.warning(
-                "Received a start command without an effective chat, skipping /start reply.",
+                "Received a start command without an effective chat, skipping /start reply."
             )
             return
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=self.config["start_message"],
+            chat_id=update.effective_chat.id, text=self.config["start_message"]
         )
 
     async def message_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -229,10 +276,7 @@ class TelegramPlatformAdapter(Platform):
             await self.handle_msg(abm)
 
     async def convert_message(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-        get_reply=True,
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, get_reply=True
     ) -> AstrBotMessage | None:
         """转换 Telegram 的消息对象为 AstrBotMessage 对象。
 
@@ -263,8 +307,7 @@ class TelegramPlatformAdapter(Platform):
             logger.warning("[Telegram] Received a message without a from_user.")
             return None
         message.sender = MessageMember(
-            str(_from_user.id),
-            _from_user.username or "Unknown",
+            str(_from_user.id), _from_user.username or "Unknown"
         )
         message.self_id = str(context.bot.username)
         message.raw_message = update
@@ -294,7 +337,7 @@ class TelegramPlatformAdapter(Platform):
                         message_str=reply_abm.message_str,
                         text=reply_abm.message_str,
                         qq=reply_abm.sender.user_id,
-                    ),
+                    )
                 )
 
         if update.message.text:
@@ -340,18 +383,30 @@ class TelegramPlatformAdapter(Platform):
 
             if message.message_str.strip() == "/start":
                 await self.start(update, context)
-                return None
+                return
 
         elif update.message.voice:
-            file = await update.message.voice.get_file()
-            message.message = [
-                Comp.Record(file=file.file_path, url=file.file_path),
-            ]
+            try:
+                file = await update.message.voice.get_file()
+                message.message = [
+                    Comp.Record(file=file.file_path, url=file.file_path),
+                ]
+            except Exception as e:
+                logger.error(f"获取语音文件失败: {e}")
+                # 即使文件获取失败，也要创建Record组件，让插件能处理
+                message.message = [
+                    Comp.Record(file="", url=""),
+                ]
 
         elif update.message.photo:
             photo = update.message.photo[-1]  # get the largest photo
-            file = await photo.get_file()
-            message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            try:
+                file = await photo.get_file()
+                message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            except Exception as e:
+                logger.error(f"获取图片文件失败: {e}")
+                # 即使文件获取失败，也要创建Image组件，让插件能处理
+                message.message.append(Comp.Image(file="", url=""))
             if update.message.caption:
                 message.message_str = update.message.caption
                 message.message.append(Comp.Plain(message.message_str))
@@ -365,34 +420,54 @@ class TelegramPlatformAdapter(Platform):
 
         elif update.message.sticker:
             # 将sticker当作图片处理
-            file = await update.message.sticker.get_file()
-            message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            try:
+                file = await update.message.sticker.get_file()
+                message.message.append(Comp.Image(file=file.file_path, url=file.file_path))
+            except Exception as e:
+                logger.error(f"获取贴纸文件失败: {e}")
+                # 即使文件获取失败，也要创建Image组件，让插件能处理
+                message.message.append(Comp.Image(file="", url=""))
             if update.message.sticker.emoji:
                 sticker_text = f"Sticker: {update.message.sticker.emoji}"
                 message.message_str = sticker_text
                 message.message.append(Comp.Plain(sticker_text))
 
         elif update.message.document:
-            file = await update.message.document.get_file()
-            file_name = update.message.document.file_name or uuid.uuid4().hex
-            file_path = file.file_path
-            if file_path is None:
-                logger.warning(
-                    f"Telegram document file_path is None, cannot save the file {file_name}.",
-                )
-            else:
-                message.message.append(Comp.File(file=file_path, name=file_name))
+            try:
+                file = await update.message.document.get_file()
+                file_name = update.message.document.file_name or uuid.uuid4().hex
+                file_path = file.file_path
+                if file_path is None:
+                    logger.warning(
+                        f"Telegram document file_path is None, cannot save the file {file_name}."
+                    )
+                    # 即使文件获取失败，也要创建File组件，让插件能处理
+                    message.message.append(Comp.File(file="", name=file_name))
+                else:
+                    message.message.append(Comp.File(file=file_path, name=file_name))
+            except Exception as e:
+                logger.error(f"获取文档文件失败: {e}")
+                # 即使文件获取失败，也要创建File组件，让插件能处理
+                file_name = update.message.document.file_name or "未知文件"
+                message.message.append(Comp.File(file="", name=file_name))
 
         elif update.message.video:
-            file = await update.message.video.get_file()
-            file_name = update.message.video.file_name or uuid.uuid4().hex
-            file_path = file.file_path
-            if file_path is None:
-                logger.warning(
-                    f"Telegram video file_path is None, cannot save the file {file_name}.",
-                )
-            else:
-                message.message.append(Comp.Video(file=file_path, path=file.file_path))
+            try:
+                file = await update.message.video.get_file()
+                file_name = update.message.video.file_name or uuid.uuid4().hex
+                file_path = file.file_path
+                if file_path is None:
+                    logger.warning(
+                        f"Telegram video file_path is None, cannot save the file {file_name}."
+                    )
+                    # 即使文件获取失败，也要创建Video组件，让插件能处理
+                    message.message.append(Comp.Video(file="", path=""))
+                else:
+                    message.message.append(Comp.Video(file=file_path, path=file_path))
+            except Exception as e:
+                logger.error(f"获取视频文件失败: {e}")
+                # 即使文件获取失败，也要创建Video组件，让插件能处理
+                message.message.append(Comp.Video(file="", path=""))
 
         return message
 

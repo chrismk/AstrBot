@@ -1,16 +1,41 @@
 <script setup>
-import { ref, shallowRef } from 'vue';
+import { ref, shallowRef, onMounted, onUnmounted } from 'vue';
 import { useCustomizerStore } from '../../../stores/customizer';
 import { useI18n } from '@/i18n/composables';
 import sidebarItems from './sidebarItem';
 import NavItem from './NavItem.vue';
+import { applySidebarCustomization } from '@/utils/sidebarCustomization';
 
 const { t } = useI18n();
 
 const customizer = useCustomizerStore();
 const sidebarMenu = shallowRef(sidebarItems);
 
+// Apply customization on mount and listen for storage changes
+const handleStorageChange = (e) => {
+  if (e.key === 'astrbot_sidebar_customization') {
+    sidebarMenu.value = applySidebarCustomization(sidebarItems);
+  }
+};
+
+const handleCustomEvent = () => {
+  sidebarMenu.value = applySidebarCustomization(sidebarItems);
+};
+
+onMounted(() => {
+  sidebarMenu.value = applySidebarCustomization(sidebarItems);
+  
+  window.addEventListener('storage', handleStorageChange);
+  window.addEventListener('sidebar-customization-changed', handleCustomEvent);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('storage', handleStorageChange);
+  window.removeEventListener('sidebar-customization-changed', handleCustomEvent);
+});
+
 const showIframe = ref(false);
+const starCount = ref(null);
 
 const sidebarWidth = ref(235);
 const minSidebarWidth = 200;
@@ -176,6 +201,25 @@ function startSidebarResize(event) {
   document.addEventListener('mouseup', onMouseUpResize);
 }
 
+function formatNumber(num) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+async function fetchStarCount() {
+  try {
+    const response = await fetch('https://cloud.astrbot.app/api/v1/github/repo-info');
+    const data = await response.json();
+    if (data.data && data.data.stargazers_count) {
+      starCount.value = data.data.stargazers_count;
+      console.debug('Fetched star count:', starCount.value);
+    }
+  } catch (error) {
+    console.debug('Failed to fetch star count:', error);
+  }
+}
+
+fetchStarCount();
+
 </script>
 
 <template>
@@ -204,6 +248,13 @@ function startSidebarResize(event) {
         </v-btn>
         <v-btn style="margin-bottom: 8px;" size="small" variant="plain" @click="openIframeLink('https://github.com/AstrBotDevs/AstrBot')">
           {{ t('core.navigation.github') }}
+           <v-chip
+            v-if="starCount"
+            size="x-small"
+            variant="outlined"
+            class="ml-2"
+            style="font-weight: normal;"
+          >{{ formatNumber(starCount) }}</v-chip>
         </v-btn>
       </div>
     </div>

@@ -1,12 +1,10 @@
-"""
-如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。
-"""
+"""如需修改配置，请在 `data/cmd_config.json` 中修改或者在管理面板中可视化修改。"""
 
 import os
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-VERSION = "4.3.5"
+VERSION = "4.5.6"
 DB_PATH = os.path.join(get_astrbot_data_path(), "data_v4.db")
 
 # 默认配置
@@ -134,8 +132,11 @@ DEFAULT_CONFIG = {
     "persona": [],  # deprecated
     "timezone": "Asia/Shanghai",
     "callback_api_base": "",
-    "default_kb_collection": "",  # 默认知识库名称
+    "default_kb_collection": "",  # 默认知识库名称, 已经过时
     "plugin_set": ["*"],  # "*" 表示使用所有可用的插件, 空列表表示不使用任何插件
+    "kb_names": [],  # 默认知识库名称列表
+    "kb_fusion_top_k": 20,  # 知识库检索融合阶段返回结果数量
+    "kb_final_top_k": 5,  # 知识库检索最终返回结果数量
 }
 
 
@@ -321,6 +322,10 @@ CONFIG_METADATA_2 = {
                     #     "type": "string",
                     #     "options": ["fullscreen", "embedded"],
                     # },
+                    "is_sandbox": {
+                        "description": "沙箱模式",
+                        "type": "bool",
+                    },
                     "satori_api_base_url": {
                         "description": "Satori API 终结点",
                         "type": "string",
@@ -735,6 +740,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.openai.com/v1",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4o-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                         "hint": "也兼容所有与 OpenAI API 兼容的服务。",
@@ -750,6 +756,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4o-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -763,7 +770,9 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.x.ai/v1",
                         "timeout": 120,
                         "model_config": {"model": "grok-2-latest", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
+                        "xai_native_search": False,
                         "modalities": ["text", "image", "tool_use"],
                     },
                     "Anthropic": {
@@ -793,6 +802,7 @@ CONFIG_METADATA_2 = {
                         "key": ["ollama"],  # ollama 的 key 默认是 ollama
                         "api_base": "http://localhost:11434/v1",
                         "model_config": {"model": "llama3.1-8b", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -807,6 +817,7 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "llama-3.1-8b",
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -823,6 +834,7 @@ CONFIG_METADATA_2 = {
                             "model": "gemini-1.5-flash",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -864,6 +876,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.deepseek.com/v1",
                         "timeout": 120,
                         "model_config": {"model": "deepseek-chat", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "tool_use"],
                     },
@@ -877,6 +890,7 @@ CONFIG_METADATA_2 = {
                         "api_base": "https://api.302.ai/v1",
                         "timeout": 120,
                         "model_config": {"model": "gpt-4.1-mini", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -893,6 +907,7 @@ CONFIG_METADATA_2 = {
                             "model": "deepseek-ai/DeepSeek-V3",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -909,6 +924,7 @@ CONFIG_METADATA_2 = {
                             "model": "deepseek/deepseek-r1",
                             "temperature": 0.4,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "小马算力": {
@@ -924,6 +940,7 @@ CONFIG_METADATA_2 = {
                             "model": "kimi-k2-instruct-0905",
                             "temperature": 0.7,
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "优云智算": {
@@ -938,6 +955,7 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "moonshotai/Kimi-K2-Instruct",
                         },
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -951,6 +969,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api.moonshot.cn/v1",
                         "model_config": {"model": "moonshot-v1-8k", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -966,6 +985,8 @@ CONFIG_METADATA_2 = {
                         "model_config": {
                             "model": "glm-4-flash",
                         },
+                        "custom_headers": {},
+                        "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
                     "Dify": {
@@ -1022,6 +1043,7 @@ CONFIG_METADATA_2 = {
                         "timeout": 120,
                         "api_base": "https://api-inference.modelscope.cn/v1",
                         "model_config": {"model": "Qwen/Qwen3-32B", "temperature": 0.4},
+                        "custom_headers": {},
                         "custom_extra_body": {},
                         "modalities": ["text", "image", "tool_use"],
                     },
@@ -1034,6 +1056,7 @@ CONFIG_METADATA_2 = {
                         "key": [],
                         "api_base": "https://api.fastgpt.in/api/v1",
                         "timeout": 60,
+                        "custom_headers": {},
                         "custom_extra_body": {},
                     },
                     "Whisper(API)": {
@@ -1255,8 +1278,38 @@ CONFIG_METADATA_2 = {
                         "rerank_model": "BAAI/bge-reranker-base",
                         "timeout": 20,
                     },
+                    "Xinference Rerank": {
+                        "id": "xinference_rerank",
+                        "type": "xinference_rerank",
+                        "provider": "xinference",
+                        "provider_type": "rerank",
+                        "enable": True,
+                        "rerank_api_key": "",
+                        "rerank_api_base": "http://127.0.0.1:9997",
+                        "rerank_model": "BAAI/bge-reranker-base",
+                        "timeout": 20,
+                        "launch_model_if_not_running": False,
+                    },
+                    "Xinference STT": {
+                        "id": "xinference_stt",
+                        "type": "xinference_stt",
+                        "provider": "xinference",
+                        "provider_type": "speech_to_text",
+                        "enable": False,
+                        "api_key": "",
+                        "api_base": "http://127.0.0.1:9997",
+                        "model": "whisper-large-v3",
+                        "timeout": 180,
+                        "launch_model_if_not_running": False,
+                    },
                 },
                 "items": {
+                    "xai_native_search": {
+                        "description": "启用原生搜索功能",
+                        "type": "bool",
+                        "hint": "启用后，将通过 xAI 的 Chat Completions 原生 Live Search 进行联网检索（按需计费）。仅对 xAI 提供商生效。",
+                        "condition": {"provider": "xai"},
+                    },
                     "rerank_api_base": {
                         "description": "重排序模型 API Base URL",
                         "type": "string",
@@ -1271,6 +1324,11 @@ CONFIG_METADATA_2 = {
                         "description": "重排序模型名称",
                         "type": "string",
                     },
+                    "launch_model_if_not_running": {
+                        "description": "模型未运行时自动启动",
+                        "type": "bool",
+                        "hint": "如果模型当前未在 Xinference 服务中运行，是否尝试自动启动它。在生产环境中建议关闭。",
+                    },
                     "modalities": {
                         "description": "模型能力",
                         "type": "list",
@@ -1279,6 +1337,12 @@ CONFIG_METADATA_2 = {
                         "labels": ["文本", "图像", "工具使用"],
                         "render_type": "checkbox",
                         "hint": "模型支持的模态。如所填写的模型不支持图像，请取消勾选图像。",
+                    },
+                    "custom_headers": {
+                        "description": "自定义添加请求头",
+                        "type": "dict",
+                        "items": {},
+                        "hint": "此处添加的键值对将被合并到 OpenAI SDK 的 default_headers 中，用于自定义 HTTP 请求头。值必须为字符串。",
                     },
                     "custom_extra_body": {
                         "description": "自定义请求体参数",
@@ -1414,6 +1478,7 @@ CONFIG_METADATA_2 = {
                         "description": "嵌入维度",
                         "type": "int",
                         "hint": "嵌入向量的维度。根据模型不同，可能需要调整，请参考具体模型的文档。此配置项请务必填写正确，否则将导致向量数据库无法正常工作。",
+                        "_special": "get_embedding_dim",
                     },
                     "embedding_model": {
                         "description": "嵌入模型",
@@ -2061,6 +2126,9 @@ CONFIG_METADATA_2 = {
             "default_kb_collection": {
                 "type": "string",
             },
+            "kb_names": {"type": "list", "items": {"type": "string"}},
+            "kb_fusion_top_k": {"type": "int", "default": 20},
+            "kb_final_top_k": {"type": "int", "default": 5},
         },
     },
 }
@@ -2139,10 +2207,22 @@ CONFIG_METADATA_3 = {
                 "description": "知识库",
                 "type": "object",
                 "items": {
-                    "default_kb_collection": {
-                        "description": "默认使用的知识库",
-                        "type": "string",
+                    "kb_names": {
+                        "description": "知识库列表",
+                        "type": "list",
+                        "items": {"type": "string"},
                         "_special": "select_knowledgebase",
+                        "hint": "支持多选",
+                    },
+                    "kb_fusion_top_k": {
+                        "description": "融合检索结果数",
+                        "type": "int",
+                        "hint": "多个知识库检索结果融合后的返回结果数量",
+                    },
+                    "kb_final_top_k": {
+                        "description": "最终返回结果数",
+                        "type": "int",
+                        "hint": "从知识库中检索到的结果数量，越大可能获得越多相关信息，但也可能引入噪音。建议根据实际需求调整",
                     },
                 },
             },
@@ -2648,9 +2728,9 @@ CONFIG_METADATA_3_SYSTEM = {
                         "items": {"type": "string"},
                     },
                 },
-            }
+            },
         },
-    }
+    },
 }
 
 

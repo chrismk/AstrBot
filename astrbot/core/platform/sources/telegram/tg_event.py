@@ -1,24 +1,23 @@
-import asyncio
 import os
 import re
-
+import asyncio
 import telegramify_markdown
-from telegram import ReactionTypeCustomEmoji, ReactionTypeEmoji
-from telegram.ext import ExtBot
-
-from astrbot import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain
+from astrbot.api.platform import AstrBotMessage, PlatformMetadata, MessageType
 from astrbot.api.message_components import (
+    Plain,
+    Image,
+    Reply,
     At,
     File,
-    Image,
-    Plain,
     Record,
-    Reply,
+    InlineKeyboard,
 )
-from astrbot.api.platform import AstrBotMessage, MessageType, PlatformMetadata
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from telegram.ext import ExtBot
+from telegram import ReactionTypeEmoji, ReactionTypeCustomEmoji
 from astrbot.core.utils.io import download_file
+from astrbot import logger
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 
 class TelegramPlatformEvent(AstrMessageEvent):
@@ -70,10 +69,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
 
     @classmethod
     async def send_with_client(
-        cls,
-        client: ExtBot,
-        message: MessageChain,
-        user_name: str,
+        cls, client: ExtBot, message: MessageChain, user_name: str
     ):
         image_path = None
 
@@ -92,7 +88,105 @@ class TelegramPlatformEvent(AstrMessageEvent):
         if "#" in user_name:
             # it's a supergroup chat with message_thread_id
             user_name, message_thread_id = user_name.split("#")
+        
+        # 预处理：收集文本内容和键盘
+        text_content = ""
+        keyboard_markup = None
+        other_components = []
+        used_keyboard = False
+        
         for i in message.chain:
+            if isinstance(i, Plain):
+                if at_user_id and not at_flag:
+                    text_content += f"@{at_user_id} {i.text}"
+                    at_flag = True
+                else:
+                    text_content += i.text
+            elif isinstance(i, InlineKeyboard):
+                # 处理内联键盘组件
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                
+                keyboard_buttons = []
+                for row in i.buttons:
+                    row_buttons = []
+                    for button in row:
+                        if "url" in button:
+                            # URL 按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                url=button["url"]
+                            ))
+                        elif "callback_data" in button:
+                            # 回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button["callback_data"]
+                            ))
+                        else:
+                            # 默认回调按钮
+                            row_buttons.append(InlineKeyboardButton(
+                                text=button["text"],
+                                callback_data=button.get("text", "")
+                            ))
+                    keyboard_buttons.append(row_buttons)
+                
+                if keyboard_buttons:
+                    keyboard_markup = InlineKeyboardMarkup(keyboard_buttons)
+            else:
+                other_components.append(i)
+        
+        # 如果有文本内容和键盘，发送带键盘的文本消息
+        if text_content and keyboard_markup:
+            payload = {
+                "chat_id": user_name,
+            }
+            if has_reply:
+                payload["reply_to_message_id"] = reply_message_id
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
+            
+            chunks = cls._split_message(text_content)
+            for chunk in chunks:
+                try:
+                    md_text = telegramify_markdown.markdownify(
+                        chunk, max_line_length=None, normalize_whitespace=False
+                    )
+                    await client.send_message(
+                        text=md_text, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"MarkdownV2 send failed: {e}. Using plain text instead."
+                    )
+                    await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
+            used_keyboard = True
+        elif text_content:
+            # 只有文本内容，没有键盘
+            payload = {
+                "chat_id": user_name,
+            }
+            if has_reply:
+                payload["reply_to_message_id"] = reply_message_id
+            if message_thread_id:
+                payload["message_thread_id"] = message_thread_id
+            
+            chunks = cls._split_message(text_content)
+            for chunk in chunks:
+                try:
+                    md_text = telegramify_markdown.markdownify(
+                        chunk, max_line_length=None, normalize_whitespace=False
+                    )
+                    await client.send_message(
+                        text=md_text, parse_mode="MarkdownV2", **payload
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"MarkdownV2 send failed: {e}. Using plain text instead."
+                    )
+                    await client.send_message(text=chunk, **payload)
+        
+        # 处理其他组件
+        for i in other_components:
             payload = {
                 "chat_id": user_name,
             }
@@ -109,34 +203,87 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 for chunk in chunks:
                     try:
                         md_text = telegramify_markdown.markdownify(
-                            chunk,
-                            max_line_length=None,
-                            normalize_whitespace=False,
+                            chunk, max_line_length=None, normalize_whitespace=False
                         )
                         await client.send_message(
-                            text=md_text,
-                            parse_mode="MarkdownV2",
-                            **payload,
+                            text=md_text, parse_mode="MarkdownV2", **payload
                         )
                     except Exception as e:
                         logger.warning(
-                            f"MarkdownV2 send failed: {e}. Using plain text instead.",
+                            f"MarkdownV2 send failed: {e}. Using plain text instead."
                         )
                         await client.send_message(text=chunk, **payload)
             elif isinstance(i, Image):
                 image_path = await i.convert_to_file_path()
-                await client.send_photo(photo=image_path, **payload)
+                caption = getattr(i, "caption", None) or None
+                if caption:
+                    try:
+                        md_caption = telegramify_markdown.markdownify(
+                            caption, max_line_length=None, normalize_whitespace=False
+                        )
+                    except Exception:
+                        md_caption = caption
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                else:
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_photo(photo=image_path, reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_photo(photo=image_path, **payload)
             elif isinstance(i, File):
-                if i.file.startswith("https://"):
+                # Determine document source priority:
+                # 1) explicit telegram file_id:xxxx
+                # 2) http/https URL -> download to local path
+                # 3) existing local path
+                document_src = None
+                if i.file and str(i.file).startswith("file_id:"):
+                    document_src = str(i.file).split(":", 1)[1]
+                elif i.file and str(i.file).startswith("http"):
                     temp_dir = os.path.join(get_astrbot_data_path(), "temp")
                     path = os.path.join(temp_dir, i.name)
                     await download_file(i.file, path)
                     i.file = path
-
-                await client.send_document(document=i.file, filename=i.name, **payload)
+                    document_src = i.file
+                else:
+                    document_src = i.file
+                if not document_src:
+                    # fallback to raw value (may be Telegram file_id)
+                    raw_value = getattr(i, "file_", None)
+                    if raw_value:
+                        if str(raw_value).startswith("file_id:"):
+                            document_src = str(raw_value).split(":", 1)[1]
+                        else:
+                            document_src = raw_value
+                # optional caption support
+                caption = getattr(i, "caption", None) or None
+                if caption:
+                    try:
+                        md_caption = telegramify_markdown.markdownify(
+                            caption, max_line_length=None, normalize_whitespace=False
+                        )
+                    except Exception:
+                        md_caption = caption
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                else:
+                    if keyboard_markup and not used_keyboard:
+                        await client.send_document(document=document_src, filename=i.name, reply_markup=keyboard_markup, **payload)
+                        used_keyboard = True
+                    else:
+                        await client.send_document(document=document_src, filename=i.name, **payload)
             elif isinstance(i, Record):
                 path = await i.convert_to_file_path()
                 await client.send_voice(voice=path, **payload)
+            elif isinstance(i, InlineKeyboard):
+                # InlineKeyboard 已在预处理中处理，跳过
+                continue
 
     async def send(self, message: MessageChain):
         if self.get_message_type() == MessageType.GROUP_MESSAGE:
@@ -145,8 +292,45 @@ class TelegramPlatformEvent(AstrMessageEvent):
             await self.send_with_client(self.client, message, self.get_sender_id())
         await super().send(message)
 
+    async def delete_message(self, message_id: int) -> bool:
+        """删除一条消息。需要提供目标 message_id。"""
+        try:
+            if self.get_message_type() == MessageType.GROUP_MESSAGE:
+                chat_id = self.message_obj.group_id
+            else:
+                chat_id = self.get_sender_id()
+            await self.client.delete_message(chat_id=chat_id, message_id=message_id)
+            return True
+        except Exception as e:
+            logger.warning(f"Telegram 删除消息失败: {e!s}")
+            return False
+
+    async def edit_message(self, message_id: int | None, text: str) -> bool:
+        """编辑一条已发送的文本消息内容为 text（MarkdownV2）。"""
+        try:
+            if self.get_message_type() == MessageType.GROUP_MESSAGE:
+                chat_id = self.message_obj.group_id
+            else:
+                chat_id = self.get_sender_id()
+
+            try:
+                md_text = telegramify_markdown.markdownify(
+                    text, max_line_length=None, normalize_whitespace=False
+                )
+            except Exception:
+                md_text = text
+
+            await self.client.edit_message_text(
+                chat_id=chat_id, message_id=message_id, text=md_text, parse_mode="MarkdownV2"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Telegram 编辑消息失败: {e!s}")
+            return False
+
     async def react(self, emoji: str | None, big: bool = False):
-        """给原消息添加 Telegram 反应：
+        """
+        给原消息添加 Telegram 反应：
         - 普通 emoji：传入 '👍'、'😂' 等
         - 自定义表情：传入其 custom_emoji_id（纯数字字符串）
         - 取消本机器人的反应：传入 None 或空字符串
@@ -214,24 +398,62 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         delta += i.text
                     elif isinstance(i, Image):
                         image_path = await i.convert_to_file_path()
-                        await self.client.send_photo(photo=image_path, **payload)
+                        caption = getattr(i, "caption", None) or None
+                        if caption:
+                            try:
+                                md_caption = telegramify_markdown.markdownify(
+                                    caption, max_line_length=None, normalize_whitespace=False
+                                )
+                            except Exception:
+                                md_caption = caption
+                            await self.client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                        else:
+                            await self.client.send_photo(photo=image_path, **payload)
                         continue
                     elif isinstance(i, File):
-                        if i.file.startswith("https://"):
+                        # Determine document source priority (streaming path):
+                        # file_id:xxxx > http(s) download > local path
+                        document_src = None
+                        if i.file and str(i.file).startswith("file_id:"):
+                            document_src = str(i.file).split(":", 1)[1]
+                        elif i.file and str(i.file).startswith("http"):
                             temp_dir = os.path.join(get_astrbot_data_path(), "temp")
                             path = os.path.join(temp_dir, i.name)
                             await download_file(i.file, path)
                             i.file = path
-
-                        await self.client.send_document(
-                            document=i.file,
-                            filename=i.name,
-                            **payload,
-                        )
+                            document_src = i.file
+                        else:
+                            document_src = i.file
+                        if not document_src:
+                            raw_value = getattr(i, "file_", None)
+                            if raw_value:
+                                if str(raw_value).startswith("file_id:"):
+                                    document_src = str(raw_value).split(":", 1)[1]
+                                else:
+                                    document_src = raw_value
+                        # optional caption support
+                        caption = getattr(i, "caption", None) or None
+                        if caption:
+                            try:
+                                md_caption = telegramify_markdown.markdownify(
+                                    caption, max_line_length=None, normalize_whitespace=False
+                                )
+                            except Exception:
+                                md_caption = caption
+                            await self.client.send_document(
+                                document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload
+                            )
+                        else:
+                            await self.client.send_document(
+                                document=document_src, filename=i.name, **payload
+                            )
                         continue
                     elif isinstance(i, Record):
                         path = await i.convert_to_file_path()
                         await self.client.send_voice(voice=path, **payload)
+                        continue
+                    elif isinstance(i, InlineKeyboard):
+                        # InlineKeyboard 已在预处理中处理，跳过
                         continue
                     else:
                         logger.warning(f"不支持的消息类型: {type(i)}")
@@ -273,9 +495,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
             if delta and current_content != delta:
                 try:
                     markdown_text = telegramify_markdown.markdownify(
-                        delta,
-                        max_line_length=None,
-                        normalize_whitespace=False,
+                        delta, max_line_length=None, normalize_whitespace=False
                     )
                     await self.client.edit_message_text(
                         text=markdown_text,
@@ -286,9 +506,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                 except Exception as e:
                     logger.warning(f"Markdown转换失败，使用普通文本: {e!s}")
                     await self.client.edit_message_text(
-                        text=delta,
-                        chat_id=payload["chat_id"],
-                        message_id=message_id,
+                        text=delta, chat_id=payload["chat_id"], message_id=message_id
                     )
         except Exception as e:
             logger.warning(f"编辑消息失败(streaming): {e!s}")

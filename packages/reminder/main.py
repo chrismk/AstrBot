@@ -246,16 +246,40 @@ class Main(star.Star):
     async def _reminder_callback(self, unified_msg_origin: str, d: dict):
         """The callback function of the reminder."""
         logger.info(f"Reminder Activated: {d['text']}, created by {unified_msg_origin}")
-        await self.context.send_message(
-            unified_msg_origin,
-            MessageEventResult().message(
-                "待办提醒: \n\n"
-                + d["text"]
-                + "\n时间: "
-                + d.get("datetime", "")
-                + d.get("cron_h", ""),
-            ),
-        )
+        
+        try:
+            await self.context.send_message(
+                unified_msg_origin,
+                MessageEventResult().message(
+                    "待办提醒: \n\n"
+                    + d["text"]
+                    + "\n时间: "
+                    + d.get("datetime", "")
+                    + d.get("cron_h", ""),
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Failed to send reminder message to {unified_msg_origin}: {e}")
+        
+        # Remove one-time reminders after they are triggered
+        if "datetime" in d:
+            job_id = d.get("id")
+            users_reminders = self.reminder_data.get(unified_msg_origin, [])
+            # Remove from data
+            for i, r in enumerate(users_reminders):
+                if r.get("id") == job_id:
+                    users_reminders.pop(i)
+                    logger.info(f"Removed one-time reminder: {d['text']}")
+                    break
+            
+            # Remove from scheduler
+            try:
+                self.scheduler.remove_job(job_id)
+            except Exception as e:
+                logger.debug(f"Job {job_id} already removed from scheduler: {e}")
+            
+            # Save updated data
+            await self._save_data()
 
     async def terminate(self):
         self.scheduler.shutdown()

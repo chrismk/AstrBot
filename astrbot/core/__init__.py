@@ -7,6 +7,7 @@ from astrbot.core.file_token_service import FileTokenService
 from astrbot.core.utils.pip_installer import PipInstaller
 from astrbot.core.utils.shared_preferences import SharedPreferences
 from astrbot.core.utils.t2i.renderer import HtmlRenderer
+from astrbot.core.utils.callback_router import CallbackRouter, callback_handler, auto_stop_event  # noqa
 
 from .log import LogBroker, LogManager  # noqa
 from .utils.astrbot_path import get_astrbot_data_path

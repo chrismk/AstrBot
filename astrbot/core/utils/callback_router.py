@@ -40,6 +40,13 @@ def auto_stop_event(func: Callable) -> Callable:
         # yield 所有结果
         for result in results:
             yield result
+            
+        # ⚠️ 关键修复：无论是否有结果（例如 MessageEditor 编辑成功直接 return），
+        # 都要尝试在 event 对象上调用 stop_event()
+        if len(args) >= 2:
+            event = args[1] # 第二个参数通常是 event
+            if hasattr(event, 'stop_event'):
+                event.stop_event()
     
     return wrapper
 

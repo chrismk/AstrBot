@@ -25,19 +25,21 @@ def auto_stop_event(func: Callable) -> Callable:
     
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        last_result = None
-        has_yielded = False
+        results = []
         
+        # 收集所有结果
         async for result in func(*args, **kwargs):
-            has_yielded = True
-            last_result = result
-            yield result
+            results.append(result)
         
-        # 如果有 yield 过结果，在函数结束时调用 stop_event
-        if has_yielded and len(args) >= 2:
-            event = args[1]  # 第二个参数通常是 event
-            if hasattr(event, 'stop_event'):
-                event.stop_event()
+        # 如果有结果，在最后一个结果上设置 stop_event
+        if results:
+            last_result = results[-1]
+            if hasattr(last_result, 'stop_event'):
+                last_result.stop_event()
+        
+        # yield 所有结果
+        for result in results:
+            yield result
     
     return wrapper
 

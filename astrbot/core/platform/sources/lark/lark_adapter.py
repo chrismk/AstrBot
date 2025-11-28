@@ -24,7 +24,9 @@ from lark_oapi.api.im.v1 import *
 from lark_oapi.api.contact.v3 import GetUserRequest
 
 
-@register_platform_adapter("lark", "飞书机器人官方 API 适配器")
+@register_platform_adapter(
+    "lark", "飞书机器人官方 API 适配器", support_streaming_message=False
+)
 class LarkPlatformAdapter(Platform):
     def __init__(
         self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue
@@ -202,6 +204,7 @@ class LarkPlatformAdapter(Platform):
             name="lark",
             description="飞书机器人官方 API 适配器",
             id=self.config.get("id"),
+            support_streaming_message=False,
         )
 
     async def convert_msg(self, event: lark.im.v1.P2ImMessageReceiveV1):

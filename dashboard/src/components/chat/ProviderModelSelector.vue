@@ -3,7 +3,11 @@
         <!-- 选择提供商和模型按钮 -->
         <v-chip class="text-none" variant="tonal" size="x-small"
             v-if="selectedProviderId && selectedModelName" @click="openDialog">
+            <v-icon start size="14">mdi-creation</v-icon>
             {{ selectedProviderId }} / {{ selectedModelName }}
+        </v-chip>
+        <v-chip variant="tonal" rounded="xl" size="x-small" v-else @click="openDialog">
+            选择模型
         </v-chip>
 
         <!-- 选择提供商和模型对话框 -->

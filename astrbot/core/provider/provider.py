@@ -1,26 +1,16 @@
 import abc
 import asyncio
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 
 from astrbot.core.agent.message import Message
 from astrbot.core.agent.tool import ToolSet
-from astrbot.core.db.po import Personality
 from astrbot.core.provider.entities import (
     LLMResponse,
-    ProviderType,
+    ProviderMeta,
     RerankResult,
     ToolCallsResult,
 )
 from astrbot.core.provider.register import provider_cls_map
-
-
-@dataclass
-class ProviderMeta:
-    id: str
-    model: str
-    type: str
-    provider_type: ProviderType
 
 
 class AbstractProvider(abc.ABC):
@@ -43,15 +33,15 @@ class AbstractProvider(abc.ABC):
         """Get the provider metadata"""
         provider_type_name = self.provider_config["type"]
         meta_data = provider_cls_map.get(provider_type_name)
-        provider_type = meta_data.provider_type if meta_data else None
-        if provider_type is None:
-            raise ValueError(f"Cannot find provider type: {provider_type_name}")
-        return ProviderMeta(
-            id=self.provider_config["id"],
+        if not meta_data:
+            raise ValueError(f"Provider type {provider_type_name} not registered")
+        meta = ProviderMeta(
+            id=self.provider_config.get("id", "default"),
             model=self.get_model(),
             type=provider_type_name,
-            provider_type=provider_type,
+            provider_type=meta_data.provider_type,
         )
+        return meta
 
 
 class Provider(AbstractProvider):
@@ -61,14 +51,9 @@ class Provider(AbstractProvider):
         self,
         provider_config: dict,
         provider_settings: dict,
-        default_persona: Personality | None = None,
     ) -> None:
         super().__init__(provider_config)
-
         self.provider_settings = provider_settings
-
-        self.curr_personality = default_persona
-        """维护了当前的使用的 persona，即人格。可能为 None"""
 
     @abc.abstractmethod
     def get_current_key(self) -> str:

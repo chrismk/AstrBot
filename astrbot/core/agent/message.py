@@ -76,7 +76,7 @@ class ImageURLPart(ContentPart):
         """The ID of the image, to allow LLMs to distinguish different images."""
 
     type: str = "image_url"
-    image_url: str
+    image_url: ImageURL
 
 
 class AudioURLPart(ContentPart):
@@ -119,6 +119,13 @@ class ToolCall(BaseModel):
     """The ID of the tool call."""
     function: FunctionBody
     """The function body of the tool call."""
+    extra_content: dict[str, Any] | None = None
+    """Extra metadata for the tool call."""
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        if self.extra_content is None:
+            kwargs.setdefault("exclude", set()).add("extra_content")
+        return super().model_dump(**kwargs)
 
 
 class ToolCallPart(BaseModel):

@@ -172,9 +172,12 @@ class CallbackRouter:
 
 def callback_handler(prefix: str):
     """
-    回调处理器装饰器
+    回调处理器装饰器（增强版 - 支持 JSON 格式）
     
-    自动注册回调路由并提取 action 参数
+    自动注册回调路由并提取 action 参数，支持：
+    1. 传统字符串格式：prefix:action
+    2. JSON 格式：{"action": "...", ...}
+    3. 嵌套 JSON 格式：{"action": "callback", "data": "prefix:action"}
     
     使用示例:
         @callback_handler("checkin")
@@ -189,6 +192,54 @@ def callback_handler(prefix: str):
     def decorator(func: Callable) -> Callable:
         import functools
         import inspect
+        import json as json_module
+        from astrbot.api import logger
+        
+        def _extract_callback_data(callback_data: str) -> Optional[str]:
+            """
+            提取回调数据，支持多种格式
+            
+            Returns:
+                如果是本插件的回调，返回实际的回调数据；否则返回 None
+            """
+            if not callback_data:
+                return None
+            
+            # 1. 检查传统字符串格式：prefix:action
+            if callback_data.startswith(f"{prefix}:"):
+                return callback_data
+            
+            # 2. 检查 JSON 格式
+            if callback_data.startswith("{") and callback_data.endswith("}"):
+                try:
+                    json_data = json_module.loads(callback_data)
+                    action_type = json_data.get("action", "")
+                    
+                    # 2.1 处理嵌套格式：{"action": "callback", "data": "prefix:action"}
+                    if action_type == "callback":
+                        nested_data = json_data.get("data", "")
+                        if nested_data and nested_data.startswith(f"{prefix}:"):
+                            logger.debug(f"[callback_handler] 提取嵌套回调: {nested_data}")
+                            return nested_data
+                        else:
+                            # 不是本插件的回调
+                            return None
+                    
+                    # 2.2 处理直接 JSON 格式：{"action": "prefix_action", ...}
+                    # 检查 action 是否以 prefix_ 开头（如 douban_detail）
+                    if action_type.startswith(f"{prefix}_"):
+                        logger.debug(f"[callback_handler] 提取 JSON 回调: {callback_data}")
+                        return callback_data
+                    
+                    # 不是本插件的回调
+                    return None
+                    
+                except Exception as e:
+                    logger.debug(f"[callback_handler] JSON 解析失败: {e}")
+                    return None
+            
+            # 不是本插件的回调
+            return None
         
         # 检查原函数是否是 async generator
         is_async_gen = inspect.isasyncgenfunction(func)
@@ -205,9 +256,18 @@ def callback_handler(prefix: str):
                 
                 callback_data = parts[1].strip()
                 
-                # 检查前缀（快速过滤，不是本插件的回调直接返回）
-                if not callback_data or not callback_data.startswith(f"{prefix}:"):
+                # 提取并检查回调数据（支持多种格式）
+                extracted_data = _extract_callback_data(callback_data)
+                if not extracted_data:
+                    # 不是本插件的回调，直接返回
                     return
+                
+                # 如果提取的数据与原始数据不同，说明进行了格式转换
+                # 需要更新 event.message_str，让插件接收到干净的回调数据
+                if extracted_data != callback_data:
+                    # 重建消息字符串：/callback extracted_data
+                    event.message_str = f"{parts[0]} {extracted_data}"
+                    logger.debug(f"[callback_handler] 已转换回调数据: {callback_data} -> {extracted_data}")
                 
                 # 是本插件的回调，调用原函数并 yield 结果
                 async for result in func(self, event, *args, **kwargs):
@@ -224,9 +284,18 @@ def callback_handler(prefix: str):
                 
                 callback_data = parts[1].strip()
                 
-                # 检查前缀（快速过滤，不是本插件的回调直接返回）
-                if not callback_data or not callback_data.startswith(f"{prefix}:"):
+                # 提取并检查回调数据（支持多种格式）
+                extracted_data = _extract_callback_data(callback_data)
+                if not extracted_data:
+                    # 不是本插件的回调，直接返回
                     return
+                
+                # 如果提取的数据与原始数据不同，说明进行了格式转换
+                # 需要更新 event.message_str，让插件接收到干净的回调数据
+                if extracted_data != callback_data:
+                    # 重建消息字符串：/callback extracted_data
+                    event.message_str = f"{parts[0]} {extracted_data}"
+                    logger.debug(f"[callback_handler] 已转换回调数据: {callback_data} -> {extracted_data}")
                 
                 # 是本插件的回调，调用原函数
                 return await func(self, event, *args, **kwargs)

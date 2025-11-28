@@ -8,6 +8,7 @@ from typing import List
 import aiohttp
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Plain, Image as AstrBotImage, At, File as AstrBotFile, InlineKeyboard
+from astrbot.core.platform import SendMessageResult
 from astrbot.core.utils.io import download_image_by_url
 from lark_oapi.api.im.v1 import *
 from astrbot import logger
@@ -280,7 +281,11 @@ class LarkMessageEvent(AstrMessageEvent):
             content = []
             stage = []
             
-            # 添加文本和 @
+            # 先添加图片（图片在上）
+            for img in images:
+                content.append([img])
+            
+            # 再添加文本和 @（文本在下）
             for text in text_parts:
                 if text.strip():
                     stage.append({"tag": "md", "text": text})
@@ -290,10 +295,6 @@ class LarkMessageEvent(AstrMessageEvent):
             
             if stage:
                 content.append(stage)
-            
-            # 添加图片
-            for img in images:
-                content.append([img])
             
             # 如果没有任何内容，添加一个空的文本段
             if not content:
@@ -307,7 +308,59 @@ class LarkMessageEvent(AstrMessageEvent):
             }
             return wrapped, "post"
 
-    async def send(self, message: MessageChain):
+    @staticmethod
+    def _extract_lark_message_info(resp_data) -> dict:
+        """从飞书响应数据中提取消息信息
+        
+        Args:
+            resp_data: 飞书 API 响应的 data 对象
+            
+        Returns:
+            dict: 包含消息信息的字典
+        """
+        if not resp_data:
+            return {}
+        
+        info = {
+            "message_id": getattr(resp_data, "message_id", None),
+            "root_id": getattr(resp_data, "root_id", None),
+            "parent_id": getattr(resp_data, "parent_id", None),
+            "chat_id": getattr(resp_data, "chat_id", None),
+            "create_time": getattr(resp_data, "create_time", None),
+            "update_time": getattr(resp_data, "update_time", None),
+            "msg_type": getattr(resp_data, "msg_type", None),
+        }
+        
+        # 移除 None 值
+        return {k: v for k, v in info.items() if v is not None}
+
+    async def send(self, message: MessageChain, target: str = None) -> SendMessageResult:
+        """发送消息并返回发送结果
+        
+        Args:
+            message: 消息链
+            target: 目标用户 ID，如果不指定则发送给当前消息的发送者
+        
+        Returns:
+            SendMessageResult: 统一的发送结果对象，包含消息 ID 和平台特定数据
+            
+        Example:
+            ```python
+            # 回复当前用户
+            result = await event.send(MessageChain([Plain("Hello")]))
+            
+            # 发送到指定用户
+            result = await event.send(MessageChain([Plain("Hello")]), target="ou_xxx")
+            
+            print(f"消息 ID: {result.message_id}")
+            
+            # 获取飞书特定数据
+            chat_id = result.get("chat_id")
+            file_key = result.get("file_key")
+            ```
+        """
+        result = SendMessageResult(platform="lark")
+        
         logger.debug(f"[lark] 开始发送消息，消息链长度: {len(message.chain)}")
         for i, comp in enumerate(message.chain):
             logger.debug(f"[lark] 消息组件 [{i}]: {type(comp).__name__} - {comp}")
@@ -317,26 +370,90 @@ class LarkMessageEvent(AstrMessageEvent):
         logger.debug(f"[lark] 消息类型: {msg_type}")
         logger.debug(f"[lark] 发送内容: {json.dumps(content, ensure_ascii=False, indent=2)}")
         
-        # 发送消息（统一处理）
-        req = (
-            ReplyMessageRequest.builder()
-            .message_id(self.message_obj.message_id)
-            .request_body(
-                ReplyMessageRequestBody.builder()
-                .content(json.dumps(content))
-                .msg_type(msg_type)
-                .uuid(str(uuid.uuid4()))
-                .reply_in_thread(False)
+        # 确定发送目标和方式
+        if target:
+            # 发送到指定用户
+            req = (
+                CreateMessageRequest.builder()
+                .receive_id_type("open_id")
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(target)
+                    .content(json.dumps(content))
+                    .msg_type(msg_type)
+                    .uuid(str(uuid.uuid4()))
+                    .build()
+                )
                 .build()
             )
-            .build()
-        )
-
-        resp = await self.bot.im.v1.message.areply(req)
-        if not resp.success():
-            logger.error(f"回复飞书消息失败({resp.code}): {resp.msg}")
+            resp = await self.bot.im.v1.message.acreate(req)
+            if not resp.success():
+                logger.error(f"发送飞书消息到 {target} 失败({resp.code}): {resp.msg}")
+            else:
+                logger.debug(f"[lark] 消息发送到 {target} 成功，消息ID: {resp.data.message_id if resp.data else 'N/A'}")
+                if resp.data:
+                    info = self._extract_lark_message_info(resp.data)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
         else:
-            logger.debug(f"[lark] 消息发送成功，消息ID: {resp.data.message_id if resp.data else 'N/A'}")
+            # 检查是否需要私发回复（群消息且群组在私发列表中）
+            should_private_reply = False
+            private_reply_groups = getattr(self, 'private_reply_groups', [])
+            group_id = getattr(self.message_obj, 'group_id', None)
+            sender_id = getattr(self.message_obj.sender, 'user_id', None) if hasattr(self.message_obj, 'sender') else None
+            
+            if private_reply_groups and group_id and group_id in private_reply_groups:
+                should_private_reply = True
+                logger.debug(f"[lark] 群组 {group_id} 在私发列表中，将私发回复给用户 {sender_id}")
+            
+            if should_private_reply and sender_id:
+                # 私发消息给用户
+                req = (
+                    CreateMessageRequest.builder()
+                    .receive_id_type("open_id")
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(sender_id)
+                        .content(json.dumps(content))
+                        .msg_type(msg_type)
+                        .uuid(str(uuid.uuid4()))
+                        .build()
+                    )
+                    .build()
+                )
+                resp = await self.bot.im.v1.message.acreate(req)
+                if not resp.success():
+                    logger.error(f"私发飞书消息失败({resp.code}): {resp.msg}")
+                else:
+                    logger.debug(f"[lark] 私发消息成功，消息ID: {resp.data.message_id if resp.data else 'N/A'}")
+                    if resp.data:
+                        info = self._extract_lark_message_info(resp.data)
+                        result.message_ids.append(info.get("message_id", ""))
+                        result.raw.append(info)
+            else:
+                # 正常回复消息
+                req = (
+                    ReplyMessageRequest.builder()
+                    .message_id(self.message_obj.message_id)
+                    .request_body(
+                        ReplyMessageRequestBody.builder()
+                        .content(json.dumps(content))
+                        .msg_type(msg_type)
+                        .uuid(str(uuid.uuid4()))
+                        .reply_in_thread(False)
+                        .build()
+                    )
+                    .build()
+                )
+                resp = await self.bot.im.v1.message.areply(req)
+                if not resp.success():
+                    logger.error(f"回复飞书消息失败({resp.code}): {resp.msg}")
+                else:
+                    logger.debug(f"[lark] 消息发送成功，消息ID: {resp.data.message_id if resp.data else 'N/A'}")
+                    if resp.data:
+                        info = self._extract_lark_message_info(resp.data)
+                        result.message_ids.append(info.get("message_id", ""))
+                        result.raw.append(info)
 
         # 针对文件段，逐个上传并发送 file 消息
         for comp in message.chain:
@@ -349,22 +466,45 @@ class LarkMessageEvent(AstrMessageEvent):
                     # 直传 file_key:xxxx 或 file_id:xxxx（无需上传；两者视为同义，统一映射为 file_key）
                     if isinstance(path_or_url, str) and (path_or_url.startswith("file_key:") or path_or_url.startswith("file_id:")):
                         file_key = path_or_url.split(":", 1)[1]
-                        file_msg_req = (
-                            ReplyMessageRequest.builder()
-                            .message_id(self.message_obj.message_id)
-                            .request_body(
-                                ReplyMessageRequestBody.builder()
-                                .content(json.dumps({"file_key": file_key}))
-                                .msg_type("file")
-                                .uuid(str(uuid.uuid4()))
-                                .reply_in_thread(False)
+                        if should_private_reply and sender_id:
+                            # 私发文件消息
+                            file_msg_req = (
+                                CreateMessageRequest.builder()
+                                .receive_id_type("open_id")
+                                .request_body(
+                                    CreateMessageRequestBody.builder()
+                                    .receive_id(sender_id)
+                                    .content(json.dumps({"file_key": file_key}))
+                                    .msg_type("file")
+                                    .uuid(str(uuid.uuid4()))
+                                    .build()
+                                )
                                 .build()
                             )
-                            .build()
-                        )
-                        file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
+                            file_msg_resp = await self.bot.im.v1.message.acreate(file_msg_req)
+                        else:
+                            file_msg_req = (
+                                ReplyMessageRequest.builder()
+                                .message_id(self.message_obj.message_id)
+                                .request_body(
+                                    ReplyMessageRequestBody.builder()
+                                    .content(json.dumps({"file_key": file_key}))
+                                    .msg_type("file")
+                                    .uuid(str(uuid.uuid4()))
+                                    .reply_in_thread(False)
+                                    .build()
+                                )
+                                .build()
+                            )
+                            file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
                         if not file_msg_resp.success():
                             logger.error(f"发送飞书文件消息失败({file_msg_resp.code}): {file_msg_resp.msg}")
+                        else:
+                            if file_msg_resp.data:
+                                info = self._extract_lark_message_info(file_msg_resp.data)
+                                info["file_key"] = file_key
+                                result.message_ids.append(info.get("message_id", ""))
+                                result.raw.append(info)
                         continue
 
                     # 确保我们有本地文件句柄
@@ -404,27 +544,51 @@ class LarkMessageEvent(AstrMessageEvent):
                     if _file_handle:
                         _file_handle.close()
 
-                    # 发送 file 消息（回复）
-                    file_msg_req = (
-                        ReplyMessageRequest.builder()
-                        .message_id(self.message_obj.message_id)
-                        .request_body(
-                            ReplyMessageRequestBody.builder()
-                            .content(json.dumps({"file_key": file_key}))
-                            .msg_type("file")
-                            .uuid(str(uuid.uuid4()))
-                            .reply_in_thread(False)
+                    # 发送 file 消息
+                    if should_private_reply and sender_id:
+                        # 私发文件消息
+                        file_msg_req = (
+                            CreateMessageRequest.builder()
+                            .receive_id_type("open_id")
+                            .request_body(
+                                CreateMessageRequestBody.builder()
+                                .receive_id(sender_id)
+                                .content(json.dumps({"file_key": file_key}))
+                                .msg_type("file")
+                                .uuid(str(uuid.uuid4()))
+                                .build()
+                            )
                             .build()
                         )
-                        .build()
-                    )
-                    file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
+                        file_msg_resp = await self.bot.im.v1.message.acreate(file_msg_req)
+                    else:
+                        file_msg_req = (
+                            ReplyMessageRequest.builder()
+                            .message_id(self.message_obj.message_id)
+                            .request_body(
+                                ReplyMessageRequestBody.builder()
+                                .content(json.dumps({"file_key": file_key}))
+                                .msg_type("file")
+                                .uuid(str(uuid.uuid4()))
+                                .reply_in_thread(False)
+                                .build()
+                            )
+                            .build()
+                        )
+                        file_msg_resp = await self.bot.im.v1.message.areply(file_msg_req)
                     if not file_msg_resp.success():
                         logger.error(f"发送飞书文件消息失败({file_msg_resp.code}): {file_msg_resp.msg}")
+                    else:
+                        if file_msg_resp.data:
+                            info = self._extract_lark_message_info(file_msg_resp.data)
+                            info["file_key"] = file_key
+                            result.message_ids.append(info.get("message_id", ""))
+                            result.raw.append(info)
                 except Exception as e:
                     logger.error(f"发送飞书文件消息异常: {e}")
 
-        await super().send(message)
+        await super().send(message, target)
+        return result
 
     async def delete_message(self, message_id: str | None = None) -> bool:
         """删除（撤回）一条消息。飞书删除需要 original message_id。默认撤回当前被回复的消息。"""

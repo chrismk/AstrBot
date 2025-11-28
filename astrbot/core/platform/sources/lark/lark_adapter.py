@@ -21,6 +21,7 @@ from ...register import register_platform_adapter
 from astrbot import logger
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import *
+from lark_oapi.api.contact.v3 import GetUserRequest
 
 
 @register_platform_adapter("lark", "飞书机器人官方 API 适配器")
@@ -38,6 +39,8 @@ class LarkPlatformAdapter(Platform):
         self.appsecret = platform_config["app_secret"]
         self.domain = platform_config.get("domain", lark.FEISHU_DOMAIN)
         self.bot_name = platform_config.get("lark_bot_name", "astrbot")
+        # 私发回复群组列表：在这些群组中收到消息后，私发回复给用户
+        self.private_reply_groups = platform_config.get("private_reply_groups", [])
 
         if not self.bot_name:
             logger.warning("未设置飞书机器人名称，@ 机器人可能得不到回复。")
@@ -111,6 +114,54 @@ class LarkPlatformAdapter(Platform):
         
         # 初始化卡片服务
         self.card_service = get_card_service(self.appid, self.appsecret)
+        
+        # 用户昵称缓存 {open_id: (nickname, timestamp)}
+        self._user_name_cache: dict[str, tuple[str, float]] = {}
+        self._cache_ttl = 3600  # 缓存1小时
+    
+    async def _get_user_nickname(self, open_id: str) -> str:
+        """
+        获取用户昵称（带缓存）
+        
+        Args:
+            open_id: 用户的 open_id
+            
+        Returns:
+            用户昵称，获取失败则返回 open_id 前8位
+        """
+        # 检查缓存
+        if open_id in self._user_name_cache:
+            nickname, cached_time = self._user_name_cache[open_id]
+            if time.time() - cached_time < self._cache_ttl:
+                return nickname
+        
+        # 调用 API 获取用户信息
+        try:
+            request = (
+                GetUserRequest.builder()
+                .user_id(open_id)
+                .user_id_type("open_id")
+                .build()
+            )
+            response = await self.lark_api.contact.v3.user.aget(request)
+            
+            if response.success() and response.data and response.data.user:
+                user = response.data.user
+                # 打印所有可用字段
+                logger.info(f"[lark] 用户对象所有字段: {user.__dict__}")
+                nickname = user.name or user.en_name or getattr(user, 'nickname', None) or open_id[:8]
+                self._user_name_cache[open_id] = (nickname, time.time())
+                logger.debug(f"[lark] 获取用户昵称成功: {open_id} -> {nickname}")
+                return nickname
+            else:
+                logger.warning(f"[lark] 获取用户昵称失败: code={response.code}, msg={response.msg}")
+        except Exception as e:
+            logger.debug(f"[lark] 获取用户昵称异常: {e}")
+        
+        # 失败时使用 open_id 前8位
+        fallback = open_id[:8]
+        self._user_name_cache[open_id] = (fallback, time.time())
+        return fallback
 
     async def send_by_session(
         self, session: MessageSesion, message_chain: MessageChain
@@ -233,9 +284,13 @@ class LarkPlatformAdapter(Platform):
                 abm.message_str += comp.text
         abm.message_id = message.message_id
         abm.raw_message = message
+        
+        # 获取用户昵称
+        open_id = event.event.sender.sender_id.open_id
+        nickname = await self._get_user_nickname(open_id)
         abm.sender = MessageMember(
-            user_id=event.event.sender.sender_id.open_id,
-            nickname=event.event.sender.sender_id.open_id[:8],
+            user_id=open_id,
+            nickname=nickname,
         )
         # 独立会话
         if not self.unique_session:
@@ -262,6 +317,8 @@ class LarkPlatformAdapter(Platform):
         )
         # 注入卡片服务
         event.card_service = self.card_service
+        # 注入私发回复群组配置
+        event.private_reply_groups = self.private_reply_groups
 
         self._event_queue.put_nowait(event)
 
@@ -308,16 +365,21 @@ class LarkPlatformAdapter(Platform):
                     
                     # 确保 user_id 不为 None
                     user_id = None
+                    open_id = None
                     if hasattr(operator, 'user_id') and operator.user_id:
                         user_id = operator.user_id
-                    elif hasattr(operator, 'open_id') and operator.open_id:
-                        user_id = operator.open_id
-                    else:
+                    if hasattr(operator, 'open_id') and operator.open_id:
+                        open_id = operator.open_id
+                        if not user_id:
+                            user_id = open_id
+                    if not user_id:
                         user_id = "unknown_user"  # 提供默认值
                     
+                    # 获取用户昵称
+                    nickname = await self._get_user_nickname(open_id) if open_id else "Unknown"
                     abm.sender = MessageMember(
                         user_id=user_id,
-                        nickname=operator.open_id if hasattr(operator, 'open_id') and operator.open_id else "Unknown",
+                        nickname=nickname,
                     )
                     abm.group_id = context.open_chat_id if hasattr(context, 'open_chat_id') else None
                     

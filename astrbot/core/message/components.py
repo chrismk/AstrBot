@@ -41,6 +41,7 @@ class ComponentType(str, Enum):
     Plain = "Plain"  # 纯文本消息
     Face = "Face"  # QQ表情
     Record = "Record"  # 语音
+    Audio = "Audio"  # 音频（带元数据，如音乐）
     Video = "Video"  # 视频
     At = "At"  # At
     Node = "Node"  # 转发消息的一个节点
@@ -241,6 +242,187 @@ class Record(BaseMessageComponent):
         logger.debug(f"已注册：{callback_host}/api/file/{token}")
 
         return f"{callback_host}/api/file/{token}"
+
+
+class Audio(BaseMessageComponent):
+    """音频组件（带元数据，适用于音乐播放）
+    
+    与 Record（语音）不同，Audio 支持丰富的元数据：
+    - title: 歌曲标题
+    - performer: 演唱者/艺术家
+    - duration: 时长（秒）
+    - thumbnail: 封面图URL
+    - caption: 说明文字
+    
+    在 Telegram 中会显示为音乐播放器样式，带有封面、标题、歌手等信息。
+    """
+    type = ComponentType.Audio
+    file: T.Optional[str] = ""  # 音频文件路径或URL
+    url: T.Optional[str] = ""   # 音频URL（备用）
+    title: T.Optional[str] = ""  # 歌曲标题
+    performer: T.Optional[str] = ""  # 演唱者/艺术家
+    duration: T.Optional[int] = 0  # 时长（秒）
+    thumbnail: T.Optional[str] = ""  # 封面图URL
+    caption: T.Optional[str] = ""  # 说明文字
+    file_id: T.Optional[str] = ""  # 平台缓存的文件ID（如Telegram file_id）
+    # 额外
+    path: T.Optional[str] = ""
+
+    def __init__(
+        self,
+        file: T.Optional[str] = None,
+        title: T.Optional[str] = None,
+        performer: T.Optional[str] = None,
+        duration: T.Optional[int] = None,
+        thumbnail: T.Optional[str] = None,
+        caption: T.Optional[str] = None,
+        file_id: T.Optional[str] = None,
+        **_
+    ):
+        super().__init__(
+            file=file or "",
+            title=title or "",
+            performer=performer or "",
+            duration=duration or 0,
+            thumbnail=thumbnail or "",
+            caption=caption or "",
+            file_id=file_id or "",
+            **_
+        )
+
+    @staticmethod
+    def fromFileSystem(
+        path: str,
+        title: str = "",
+        performer: str = "",
+        duration: int = 0,
+        thumbnail: str = "",
+        caption: str = "",
+        **_
+    ) -> "Audio":
+        """从本地文件创建音频组件"""
+        return Audio(
+            file=f"file:///{os.path.abspath(path)}",
+            path=path,
+            title=title,
+            performer=performer,
+            duration=duration,
+            thumbnail=thumbnail,
+            caption=caption,
+            **_
+        )
+
+    @staticmethod
+    def fromURL(
+        url: str,
+        title: str = "",
+        performer: str = "",
+        duration: int = 0,
+        thumbnail: str = "",
+        caption: str = "",
+        **_
+    ) -> "Audio":
+        """从URL创建音频组件"""
+        if url.startswith("http://") or url.startswith("https://"):
+            return Audio(
+                file=url,
+                url=url,
+                title=title,
+                performer=performer,
+                duration=duration,
+                thumbnail=thumbnail,
+                caption=caption,
+                **_
+            )
+        raise Exception("not a valid url")
+
+    @staticmethod
+    def fromFileId(
+        file_id: str,
+        title: str = "",
+        performer: str = "",
+        caption: str = "",
+        **_
+    ) -> "Audio":
+        """从平台文件ID创建音频组件（用于发送缓存的音频）"""
+        return Audio(
+            file_id=file_id,
+            title=title,
+            performer=performer,
+            caption=caption,
+            **_
+        )
+
+    async def convert_to_file_path(self) -> str:
+        """将音频统一转换为本地文件路径。
+        
+        Returns:
+            str: 音频的本地路径，以绝对路径表示。
+        """
+        file_url = self.file or self.url
+        if not file_url:
+            raise Exception(f"not a valid file: {file_url}")
+        
+        if file_url.startswith("file:///"):
+            return file_url[8:]
+        elif file_url.startswith("http"):
+            download_dir = os.path.join(get_astrbot_data_path(), "temp")
+            os.makedirs(download_dir, exist_ok=True)
+            # 使用标题和歌手生成文件名
+            filename = f"{self.performer or 'Unknown'} - {self.title or 'Unknown'}.mp3"
+            # 清理文件名中的非法字符
+            filename = "".join(c for c in filename if c not in r'\/:*?"<>|')
+            audio_file_path = os.path.join(download_dir, filename)
+            await download_file(file_url, audio_file_path)
+            if os.path.exists(audio_file_path):
+                return os.path.abspath(audio_file_path)
+            else:
+                raise Exception(f"download failed: {file_url}")
+        elif os.path.exists(file_url):
+            return os.path.abspath(file_url)
+        else:
+            raise Exception(f"not a valid file: {file_url}")
+
+    async def convert_to_base64(self) -> str:
+        """将音频统一转换为 base64 编码。
+        
+        Returns:
+            str: 音频的 base64 编码。
+        """
+        file_url = self.file or self.url
+        if not file_url:
+            raise Exception(f"not a valid file: {file_url}")
+        
+        if file_url.startswith("file:///"):
+            bs64_data = file_to_base64(file_url[8:])
+        elif file_url.startswith("http"):
+            file_path = await self.convert_to_file_path()
+            bs64_data = file_to_base64(file_path)
+        elif file_url.startswith("base64://"):
+            bs64_data = file_url
+        elif os.path.exists(file_url):
+            bs64_data = file_to_base64(file_url)
+        else:
+            raise Exception(f"not a valid file: {file_url}")
+        
+        bs64_data = bs64_data.removeprefix("base64://")
+        return bs64_data
+
+    def toDict(self) -> dict:
+        """转换为字典格式"""
+        return {
+            "type": "audio",
+            "data": {
+                "file": self.file,
+                "url": self.url,
+                "title": self.title,
+                "performer": self.performer,
+                "duration": self.duration,
+                "thumbnail": self.thumbnail,
+                "caption": self.caption,
+                "file_id": self.file_id,
+            }
+        }
 
 
 class Video(BaseMessageComponent):
@@ -738,10 +920,18 @@ class File(BaseMessageComponent):
     name: T.Optional[str] = ""  # 名字
     file_: T.Optional[str] = ""  # 本地路径
     url: T.Optional[str] = ""  # url
+    caption: T.Optional[str] = ""  # 文件描述/标题
 
-    def __init__(self, name: str, file: str = "", url: str = ""):
-        """文件消息段。"""
-        super().__init__(name=name, file_=file, url=url)
+    def __init__(self, name: str, file: str = "", url: str = "", caption: str = ""):
+        """文件消息段。
+        
+        Args:
+            name: 文件名称
+            file: 文件路径或 file_id:xxx 格式
+            url: 文件 URL
+            caption: 文件描述/标题（发送时显示在文件下方）
+        """
+        super().__init__(name=name, file_=file, url=url, caption=caption)
 
     @property
     def file(self) -> str:

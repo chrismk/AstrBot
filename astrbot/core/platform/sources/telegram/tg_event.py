@@ -4,6 +4,7 @@ import asyncio
 import telegramify_markdown
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.platform import AstrBotMessage, PlatformMetadata, MessageType
+from astrbot.core.platform import SendMessageResult
 from astrbot.api.message_components import (
     Plain,
     Image,
@@ -11,6 +12,7 @@ from astrbot.api.message_components import (
     At,
     File,
     Record,
+    Audio,
     InlineKeyboard,
 )
 from telegram.ext import ExtBot
@@ -23,6 +25,110 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 class TelegramPlatformEvent(AstrMessageEvent):
     # Telegram 的最大消息长度限制
     MAX_MESSAGE_LENGTH = 4096
+    
+    @staticmethod
+    def _extract_message_info(msg) -> dict:
+        """从 Telegram Message 对象中提取信息
+        
+        Args:
+            msg: Telegram Message 对象
+            
+        Returns:
+            dict: 包含消息信息的字典
+        """
+        if not msg:
+            return {}
+        
+        info = {
+            "message_id": str(msg.message_id),
+            "date": msg.date.isoformat() if msg.date else None,
+            "chat_id": str(msg.chat.id) if msg.chat else None,
+        }
+        
+        # 提取文本
+        if msg.text:
+            info["text"] = msg.text
+        
+        # 提取图片信息（取最大尺寸）
+        if msg.photo:
+            largest_photo = max(msg.photo, key=lambda p: p.file_size or 0)
+            info["photo"] = {
+                "file_id": largest_photo.file_id,
+                "file_unique_id": largest_photo.file_unique_id,
+                "file_size": largest_photo.file_size,
+                "width": largest_photo.width,
+                "height": largest_photo.height,
+            }
+        
+        # 提取文档/文件信息
+        if msg.document:
+            info["document"] = {
+                "file_id": msg.document.file_id,
+                "file_unique_id": msg.document.file_unique_id,
+                "file_name": msg.document.file_name,
+                "file_size": msg.document.file_size,
+                "mime_type": msg.document.mime_type,
+            }
+        
+        # 提取音频信息
+        if msg.audio:
+            info["audio"] = {
+                "file_id": msg.audio.file_id,
+                "file_unique_id": msg.audio.file_unique_id,
+                "file_size": msg.audio.file_size,
+                "duration": msg.audio.duration,
+                "title": msg.audio.title,
+                "performer": msg.audio.performer,
+                "mime_type": msg.audio.mime_type,
+            }
+        
+        # 提取语音信息
+        if msg.voice:
+            info["voice"] = {
+                "file_id": msg.voice.file_id,
+                "file_unique_id": msg.voice.file_unique_id,
+                "file_size": msg.voice.file_size,
+                "duration": msg.voice.duration,
+                "mime_type": msg.voice.mime_type,
+            }
+        
+        # 提取视频信息
+        if msg.video:
+            info["video"] = {
+                "file_id": msg.video.file_id,
+                "file_unique_id": msg.video.file_unique_id,
+                "file_size": msg.video.file_size,
+                "duration": msg.video.duration,
+                "width": msg.video.width,
+                "height": msg.video.height,
+                "mime_type": msg.video.mime_type,
+            }
+        
+        # 提取贴纸信息
+        if msg.sticker:
+            info["sticker"] = {
+                "file_id": msg.sticker.file_id,
+                "file_unique_id": msg.sticker.file_unique_id,
+                "type": msg.sticker.type,
+                "width": msg.sticker.width,
+                "height": msg.sticker.height,
+                "emoji": msg.sticker.emoji,
+                "set_name": msg.sticker.set_name,
+            }
+        
+        # 提取动画/GIF信息
+        if msg.animation:
+            info["animation"] = {
+                "file_id": msg.animation.file_id,
+                "file_unique_id": msg.animation.file_unique_id,
+                "file_size": msg.animation.file_size,
+                "duration": msg.animation.duration,
+                "width": msg.animation.width,
+                "height": msg.animation.height,
+                "mime_type": msg.animation.mime_type,
+            }
+        
+        return info
 
     SPLIT_PATTERNS = {
         "paragraph": re.compile(r"\n\n"),
@@ -70,8 +176,14 @@ class TelegramPlatformEvent(AstrMessageEvent):
     @classmethod
     async def send_with_client(
         cls, client: ExtBot, message: MessageChain, user_name: str
-    ):
+    ) -> SendMessageResult:
+        """发送消息并返回发送结果
+        
+        Returns:
+            SendMessageResult: 统一的发送结果对象
+        """
         image_path = None
+        result = SendMessageResult(platform="telegram")  # 统一结果对象
 
         has_reply = False
         reply_message_id = None
@@ -151,14 +263,18 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     md_text = telegramify_markdown.markdownify(
                         chunk, max_line_length=None, normalize_whitespace=False
                     )
-                    await client.send_message(
+                    msg = await client.send_message(
                         text=md_text, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload
                     )
                 except Exception as e:
                     logger.warning(
                         f"MarkdownV2 send failed: {e}. Using plain text instead."
                     )
-                    await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
+                    msg = await client.send_message(text=chunk, reply_markup=keyboard_markup, **payload)
+                if msg:
+                    info = cls._extract_message_info(msg)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
             used_keyboard = True
         elif text_content:
             # 只有文本内容，没有键盘
@@ -176,14 +292,18 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     md_text = telegramify_markdown.markdownify(
                         chunk, max_line_length=None, normalize_whitespace=False
                     )
-                    await client.send_message(
+                    msg = await client.send_message(
                         text=md_text, parse_mode="MarkdownV2", **payload
                     )
                 except Exception as e:
                     logger.warning(
                         f"MarkdownV2 send failed: {e}. Using plain text instead."
                     )
-                    await client.send_message(text=chunk, **payload)
+                    msg = await client.send_message(text=chunk, **payload)
+                if msg:
+                    info = cls._extract_message_info(msg)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
         
         # 处理其他组件
         for i in other_components:
@@ -205,17 +325,22 @@ class TelegramPlatformEvent(AstrMessageEvent):
                         md_text = telegramify_markdown.markdownify(
                             chunk, max_line_length=None, normalize_whitespace=False
                         )
-                        await client.send_message(
+                        msg = await client.send_message(
                             text=md_text, parse_mode="MarkdownV2", **payload
                         )
                     except Exception as e:
                         logger.warning(
                             f"MarkdownV2 send failed: {e}. Using plain text instead."
                         )
-                        await client.send_message(text=chunk, **payload)
+                        msg = await client.send_message(text=chunk, **payload)
+                    if msg:
+                        info = cls._extract_message_info(msg)
+                        result.message_ids.append(info.get("message_id", ""))
+                        result.raw.append(info)
             elif isinstance(i, Image):
                 image_path = await i.convert_to_file_path()
                 caption = getattr(i, "caption", None) or None
+                msg = None
                 if caption:
                     try:
                         md_caption = telegramify_markdown.markdownify(
@@ -224,16 +349,20 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     except Exception:
                         md_caption = caption
                     if keyboard_markup and not used_keyboard:
-                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        msg = await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
                         used_keyboard = True
                     else:
-                        await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                        msg = await client.send_photo(photo=image_path, caption=md_caption, parse_mode="MarkdownV2", **payload)
                 else:
                     if keyboard_markup and not used_keyboard:
-                        await client.send_photo(photo=image_path, reply_markup=keyboard_markup, **payload)
+                        msg = await client.send_photo(photo=image_path, reply_markup=keyboard_markup, **payload)
                         used_keyboard = True
                     else:
-                        await client.send_photo(photo=image_path, **payload)
+                        msg = await client.send_photo(photo=image_path, **payload)
+                if msg:
+                    info = cls._extract_message_info(msg)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
             elif isinstance(i, File):
                 # Determine document source priority:
                 # 1) explicit telegram file_id:xxxx
@@ -260,6 +389,7 @@ class TelegramPlatformEvent(AstrMessageEvent):
                             document_src = raw_value
                 # optional caption support
                 caption = getattr(i, "caption", None) or None
+                msg = None
                 if caption:
                     try:
                         md_caption = telegramify_markdown.markdownify(
@@ -268,29 +398,152 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     except Exception:
                         md_caption = caption
                     if keyboard_markup and not used_keyboard:
-                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
+                        msg = await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", reply_markup=keyboard_markup, **payload)
                         used_keyboard = True
                     else:
-                        await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
+                        msg = await client.send_document(document=document_src, filename=i.name, caption=md_caption, parse_mode="MarkdownV2", **payload)
                 else:
                     if keyboard_markup and not used_keyboard:
-                        await client.send_document(document=document_src, filename=i.name, reply_markup=keyboard_markup, **payload)
+                        msg = await client.send_document(document=document_src, filename=i.name, reply_markup=keyboard_markup, **payload)
                         used_keyboard = True
                     else:
-                        await client.send_document(document=document_src, filename=i.name, **payload)
+                        msg = await client.send_document(document=document_src, filename=i.name, **payload)
+                if msg:
+                    info = cls._extract_message_info(msg)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
             elif isinstance(i, Record):
                 path = await i.convert_to_file_path()
-                await client.send_voice(voice=path, **payload)
+                msg = await client.send_voice(voice=path, **payload)
+                if msg:
+                    info = cls._extract_message_info(msg)
+                    result.message_ids.append(info.get("message_id", ""))
+                    result.raw.append(info)
+            elif isinstance(i, Audio):
+                # 处理音频组件（带元数据的音乐）
+                audio_msg, audio_info = await cls._send_audio_static(client, i, payload, keyboard_markup if not used_keyboard else None)
+                if audio_msg:
+                    result.message_ids.append(str(audio_msg.message_id))
+                    result.raw.append(audio_info)
+                if keyboard_markup and not used_keyboard:
+                    used_keyboard = True
             elif isinstance(i, InlineKeyboard):
                 # InlineKeyboard 已在预处理中处理，跳过
                 continue
+        
+        return result
 
-    async def send(self, message: MessageChain):
-        if self.get_message_type() == MessageType.GROUP_MESSAGE:
-            await self.send_with_client(self.client, message, self.message_obj.group_id)
+    async def send(self, message: MessageChain, target: str = None) -> SendMessageResult:
+        """发送消息并返回发送结果
+        
+        Args:
+            message: 消息链
+            target: 目标用户/群组 ID，如果不指定则发送给当前消息的发送者
+        
+        Returns:
+            SendMessageResult: 统一的发送结果对象，包含消息 ID 和平台特定数据
+            
+        Example:
+            ```python
+            # 回复当前用户
+            result = await event.send(MessageChain([Plain("Hello")]))
+            
+            # 发送到指定用户
+            result = await event.send(MessageChain([Plain("Hello")]), target="123456789")
+            
+            print(f"消息 ID: {result.message_id}")
+            
+            # 获取文件 ID（发送文件/图片/音频后）
+            file_id = result.get("document", {}).get("file_id")
+            photo_id = result.get("photo", {}).get("file_id")
+            audio_id = result.get("audio", {}).get("file_id")
+            ```
+        """
+        # 确定发送目标
+        if target:
+            chat_id = target
+        elif self.get_message_type() == MessageType.GROUP_MESSAGE:
+            chat_id = self.message_obj.group_id
         else:
-            await self.send_with_client(self.client, message, self.get_sender_id())
-        await super().send(message)
+            chat_id = self.get_sender_id()
+        
+        result = await self.send_with_client(self.client, message, chat_id)
+        await super().send(message, target)
+        return result
+
+    @classmethod
+    async def _send_audio_static(cls, client: ExtBot, audio: Audio, payload: dict, keyboard_markup=None) -> tuple:
+        """发送音频文件（带元数据）
+        
+        Args:
+            client: Telegram Bot 客户端
+            audio: Audio 组件
+            payload: 发送参数
+            keyboard_markup: 可选的键盘
+            
+        Returns:
+            tuple: (Message 对象, 提取的信息字典)
+        """
+        try:
+            # 构建发送参数
+            send_kwargs = {**payload}
+            
+            if audio.title:
+                send_kwargs["title"] = audio.title
+            if audio.performer:
+                send_kwargs["performer"] = audio.performer
+            if audio.duration and audio.duration > 0:
+                send_kwargs["duration"] = audio.duration
+            if audio.caption:
+                send_kwargs["caption"] = audio.caption
+            if keyboard_markup:
+                send_kwargs["reply_markup"] = keyboard_markup
+            
+            msg = None
+            
+            # 1. 优先使用 file_id（最快）
+            if audio.file_id:
+                try:
+                    msg = await client.send_audio(audio=audio.file_id, **send_kwargs)
+                except Exception as e:
+                    logger.warning(f"使用 file_id 发送失败: {e}")
+            
+            # 2. 使用 URL 直接发送（Telegram 服务器下载）
+            if not msg:
+                file_url = audio.file or audio.url
+                if file_url and file_url.startswith("http"):
+                    try:
+                        # 处理封面
+                        thumbnail = audio.thumbnail if audio.thumbnail else None
+                        if thumbnail:
+                            send_kwargs["thumbnail"] = thumbnail
+                        
+                        msg = await client.send_audio(audio=file_url, **send_kwargs)
+                    except Exception as e:
+                        logger.warning(f"使用 URL 发送失败，尝试本地文件: {e}")
+            
+            # 3. 降级：下载到本地后发送
+            if not msg:
+                try:
+                    file_path = await audio.convert_to_file_path()
+                    with open(file_path, "rb") as f:
+                        msg = await client.send_audio(audio=f, **send_kwargs)
+                except Exception as e:
+                    logger.error(f"发送本地音频失败: {e}")
+                    return None, {}
+            
+            # 提取完整信息返回
+            if msg:
+                info = cls._extract_message_info(msg)
+                if msg.audio:
+                    logger.info(f"音频发送成功: {msg.audio.title}, file_id: {msg.audio.file_id[:20]}...")
+                return msg, info
+            
+            return None, {}
+            
+        except Exception as e:
+            logger.error(f"发送音频失败: {e}", exc_info=True)
+            return None, {}
 
     async def delete_message(self, message_id: int) -> bool:
         """删除一条消息。需要提供目标 message_id。"""
@@ -451,6 +704,10 @@ class TelegramPlatformEvent(AstrMessageEvent):
                     elif isinstance(i, Record):
                         path = await i.convert_to_file_path()
                         await self.client.send_voice(voice=path, **payload)
+                        continue
+                    elif isinstance(i, Audio):
+                        # 处理音频组件（带元数据的音乐）
+                        await self._send_audio_static(self.client, i, payload, None)
                         continue
                     elif isinstance(i, InlineKeyboard):
                         # InlineKeyboard 已在预处理中处理，跳过

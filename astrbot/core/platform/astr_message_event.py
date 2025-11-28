@@ -26,6 +26,7 @@ from astrbot.core.utils.metrics import Metric
 from .astrbot_message import AstrBotMessage, Group
 from .message_session import MessageSesion, MessageSession  # noqa
 from .platform_metadata import PlatformMetadata
+from .send_message_result import SendMessageResult
 
 
 class AstrMessageEvent(abc.ABC):
@@ -366,12 +367,31 @@ class AstrMessageEvent(abc.ABC):
 
     """平台适配器"""
 
-    async def send(self, message: MessageChain):
+    async def send(self, message: MessageChain, target: str = None) -> SendMessageResult | None:
         """发送消息到消息平台。
 
         Args:
             message (MessageChain): 消息链，具体使用方式请参考文档。
+            target (str, optional): 目标用户/群组 ID。如果不指定，则发送给当前消息的发送者。
 
+        Returns:
+            SendMessageResult | None: 发送结果，包含消息 ID 和平台特定数据。
+                如果平台不支持返回结果，则返回 None。
+                
+        Example:
+            ```python
+            # 回复当前用户
+            result = await event.send(MessageChain([Plain("Hello")]))
+            
+            # 发送到指定用户
+            result = await event.send(MessageChain([Plain("Hello")]), target="123456789")
+            
+            if result:
+                print(f"消息 ID: {result.message_id}")
+                print(f"平台: {result.platform}")
+                # 获取平台特定数据
+                file_id = result.get("file_id")
+            ```
         """
         # Leverage BLAKE2 hash function to generate a non-reversible hash of the sender ID for privacy.
         hash_obj = hashlib.blake2b(self.get_sender_id().encode("utf-8"), digest_size=16)
@@ -384,6 +404,7 @@ class AstrMessageEvent(abc.ABC):
             ),
         )
         self._has_send_oper = True
+        return None
 
     async def react(self, emoji: str):
         """对消息添加表情回应。

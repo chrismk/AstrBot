@@ -231,6 +231,7 @@ CONFIG_METADATA_2 = {
                         "app_id": "",
                         "app_secret": "",
                         "domain": "https://open.feishu.cn",
+                        "private_reply_groups": [],
                     },
                     "钉钉(DingTalk)": {
                         "id": "dingtalk",
@@ -546,6 +547,12 @@ CONFIG_METADATA_2 = {
                         "description": "飞书机器人的名字",
                         "type": "string",
                         "hint": "请务必填写正确，否则 @ 机器人将无法唤醒，只能通过前缀唤醒。",
+                    },
+                    "private_reply_groups": {
+                        "description": "私发回复群组列表",
+                        "type": "list",
+                        "items": {"type": "string"},
+                        "hint": "在这些群组中收到消息后，机器人会私发回复给用户而不是回复到群里。填写群组的 chat_id（以 oc_ 开头）。",
                     },
                     "discord_token": {
                         "description": "Discord Bot Token",

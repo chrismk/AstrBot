@@ -32,6 +32,8 @@ export function getProviderIcon(type) {
     'microsoft': 'https://registry.npmmirror.com/@lobehub/icons-static-svg/latest/files/icons/microsoft.svg',
     'vllm': 'https://registry.npmmirror.com/@lobehub/icons-static-svg/latest/files/icons/vllm.svg',
     'groq': 'https://registry.npmmirror.com/@lobehub/icons-static-svg/latest/files/icons/groq.svg',
+    "tokenpony": "https://tokenpony.cn/tokenpony-web/logo.png",
+    "compshare": "https://compshare.cn/favicon.ico"
   };
   return icons[type] || '';
 }

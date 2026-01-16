@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
-from astrbot.core import logger
+from astrbot.core import astrbot_config, logger
 from astrbot.core.agent.runners.coze.coze_agent_runner import CozeAgentRunner
 from astrbot.core.agent.runners.dashscope.dashscope_agent_runner import (
     DashscopeAgentRunner,
@@ -57,7 +57,7 @@ async def run_third_party_agent(
         logger.error(f"Third party agent runner error: {e}")
         err_msg = (
             f"\nAstrBot 请求失败。\n错误类型: {type(e).__name__}\n"
-            f"错误信息: {e!s}\n\n请在控制台查看和分享错误详情。\n"
+            f"错误信息: {e!s}\n\n请在平台日志查看和分享错误详情。\n"
         )
         yield MessageChain().message(err_msg)
 
@@ -88,12 +88,15 @@ class ThirdPartyAgentSubStage(Stage):
             return
 
         self.prov_cfg: dict = next(
-            (p for p in self.conf["provider"] if p["id"] == self.prov_id),
+            (p for p in astrbot_config["provider"] if p["id"] == self.prov_id),
             {},
         )
-        if not self.prov_id or not self.prov_cfg:
+        if not self.prov_id:
+            logger.error("没有填写 Agent Runner 提供商 ID，请前往配置页面配置。")
+            return
+        if not self.prov_cfg:
             logger.error(
-                "Third Party Agent Runner provider ID is not configured properly."
+                f"Agent Runner 提供商 {self.prov_id} 配置不存在，请前往配置页面修改配置。"
             )
             return
 

@@ -38,8 +38,7 @@ class SatoriPlatformAdapter(Platform):
         platform_settings: dict,
         event_queue: asyncio.Queue,
     ) -> None:
-        super().__init__(event_queue)
-        self.config = platform_config
+        super().__init__(platform_config, event_queue)
         self.settings = platform_settings
 
         self.api_base_url = self.config.get(
@@ -143,7 +142,12 @@ class SatoriPlatformAdapter(Platform):
             raise ValueError(f"WebSocket URL必须以ws://或wss://开头: {self.endpoint}")
 
         try:
-            websocket = await connect(self.endpoint, additional_headers={})
+            websocket = await connect(
+                self.endpoint,
+                additional_headers={},
+                max_size=10 * 1024 * 1024,  # 10MB
+            )
+
             self.ws = websocket
 
             await asyncio.sleep(0.1)

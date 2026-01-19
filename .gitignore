@@ -19,7 +19,7 @@ cookies.json
 # Data files
 data_v4.db
 data_v3.db
-data
+# data
 configs/session
 configs/config.yaml
 cmd_config.json
@@ -32,9 +32,14 @@ tests/astrbot_plugin_openai
 # Dashboard
 dashboard/node_modules/
 dashboard/dist/
-package-lock.json
-package.json
+/package-lock.json
+/package.json
 yarn.lock
+
+# Mini App
+miniapp/node_modules/
+miniapp/dist/
+miniapp/package-lock.json
 
 # Operating System
 **/.DS_Store

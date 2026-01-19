@@ -20,6 +20,7 @@ from astrbot.core.utils.io import get_local_ip_addresses
 
 from .routes import *
 from .routes.backup import BackupRoute
+from .routes.miniapp import MiniAppRoute
 from .routes.platform import PlatformRoute
 from .routes.route import Response, RouteContext
 from .routes.session_management import SessionManagementRoute
@@ -88,6 +89,10 @@ class AstrBotDashboard:
         self.kb_route = KnowledgeBaseRoute(self.context, core_lifecycle)
         self.platform_route = PlatformRoute(self.context, core_lifecycle)
         self.backup_route = BackupRoute(self.context, db, core_lifecycle)
+        self.miniapp_route = MiniAppRoute(self.context, core_lifecycle)
+
+        # Mini App 静态文件服务
+        self._setup_miniapp_static()
 
         self.app.add_url_rule(
             "/api/plug/<path:subpath>",
@@ -109,6 +114,9 @@ class AstrBotDashboard:
         return jsonify(Response().error("未找到该路由").__dict__)
 
     async def auth_middleware(self):
+        # Mini App 静态文件不走 API 认证
+        if request.path.startswith("/miniapp"):
+            return None
         if not request.path.startswith("/api"):
             return None
         allowed_endpoints = [
@@ -117,6 +125,7 @@ class AstrBotDashboard:
             "/api/platform/webhook",
             "/api/stat/start-time",
             "/api/backup/download",  # 备份下载使用 URL 参数传递 token
+            "/api/miniapp/auth",  # Mini App 认证接口
         ]
         if any(request.path.startswith(prefix) for prefix in allowed_endpoints):
             return None
@@ -177,6 +186,30 @@ class AstrBotDashboard:
             return "未找到占用进程"
         except Exception as e:
             return f"获取进程信息失败: {e!s}"
+
+    def _setup_miniapp_static(self):
+        """设置 Mini App 静态文件服务"""
+        miniapp_dist = os.path.join(get_astrbot_data_path(), "miniapp")
+        
+        if not os.path.exists(miniapp_dist):
+            logger.debug(f"[MiniApp] Mini App 目录不存在: {miniapp_dist}")
+            return
+        
+        # 服务 Mini App 静态文件
+        @self.app.route("/miniapp/")
+        @self.app.route("/miniapp/<path:filename>")
+        async def serve_miniapp(filename: str = "index.html"):
+            from quart import send_from_directory
+            
+            file_path = os.path.join(miniapp_dist, filename)
+            
+            # 如果请求的是目录或文件不存在，返回 index.html (SPA 路由)
+            if os.path.isdir(file_path) or not os.path.exists(file_path):
+                return await send_from_directory(miniapp_dist, "index.html")
+            
+            return await send_from_directory(miniapp_dist, filename)
+        
+        logger.info(f"[MiniApp] Mini App 静态文件服务已启用: /miniapp/")
 
     def _init_jwt_secret(self):
         if not self.config.get("dashboard", {}).get("jwt_secret", None):

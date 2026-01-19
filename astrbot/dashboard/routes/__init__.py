@@ -8,6 +8,7 @@ from .conversation import ConversationRoute
 from .file import FileRoute
 from .knowledge_base import KnowledgeBaseRoute
 from .log import LogRoute
+from .miniapp import MiniAppRoute
 from .persona import PersonaRoute
 from .platform import PlatformRoute
 from .plugin import PluginRoute
@@ -28,6 +29,7 @@ __all__ = [
     "FileRoute",
     "KnowledgeBaseRoute",
     "LogRoute",
+    "MiniAppRoute",
     "PersonaRoute",
     "PlatformRoute",
     "PluginRoute",

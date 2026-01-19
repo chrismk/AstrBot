@@ -180,3 +180,127 @@ export async function makeupCheckin(date: string): Promise<ApiResponse<CheckinRe
     body: JSON.stringify({ date }),
   });
 }
+
+// ==================== 任务系统 API ====================
+
+export interface TaskItem {
+  task_id: string;
+  name: string;
+  description: string;
+  icon: string;
+  reward_points: number;
+  target: number;
+  progress: number;
+  progress_percent: number;
+  completed: boolean;
+  reward_claimed: boolean;
+  is_claimable: boolean;
+  is_bonus: boolean;
+}
+
+export interface TasksData {
+  type: string;
+  tasks: TaskItem[];
+  summary: {
+    total: number;
+    completed: number;
+    claimable: number;
+    claimable_points: number;
+  };
+}
+
+export async function getTasks(type: 'daily' | 'weekly' | 'monthly' = 'daily'): Promise<ApiResponse<TasksData>> {
+  return request<TasksData>(`/tasks?type=${type}`);
+}
+
+export interface ClaimResult {
+  success: boolean;
+  message: string;
+}
+
+export async function claimTask(taskId: string): Promise<ApiResponse<ClaimResult>> {
+  return request<ClaimResult>('/tasks/claim', {
+    method: 'POST',
+    body: JSON.stringify({ task_id: taskId }),
+  });
+}
+
+export interface ClaimAllResult {
+  success: boolean;
+  claimed_count: number;
+  total_points: number;
+  message: string;
+}
+
+export async function claimAllTasks(): Promise<ApiResponse<ClaimAllResult>> {
+  return request<ClaimAllResult>('/tasks/claim-all', {
+    method: 'POST',
+  });
+}
+
+export interface TaskStats {
+  daily: { completed: number; total: number; points: number };
+  weekly: { completed: number; total: number; points: number };
+  monthly: { completed: number; total: number; points: number };
+  total_points_earned: number;
+}
+
+export async function getTaskStats(): Promise<ApiResponse<TaskStats>> {
+  return request<TaskStats>('/tasks/stats');
+}
+
+// ==================== 积分明细与商城 API ====================
+
+export interface PointsRecord {
+  amount: number;
+  balance_after: number;
+  type: string;
+  source: string;
+  description: string;
+  created_at: string;
+}
+
+export interface PointsHistoryData {
+  records: PointsRecord[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    has_more: boolean;
+  };
+}
+
+export async function getPointsHistory(page: number = 1, limit: number = 20): Promise<ApiResponse<PointsHistoryData>> {
+  return request<PointsHistoryData>(`/points/history?page=${page}&limit=${limit}`);
+}
+
+export interface PointsPackage {
+  package_id: string;
+  name: string;
+  points_cost: number;
+  boost_amount: number;
+  days: number;
+  action_type: string | null;
+}
+
+export interface PackagesData {
+  packages: PointsPackage[];
+  balance: number;
+}
+
+export async function getPointsPackages(): Promise<ApiResponse<PackagesData>> {
+  return request<PackagesData>('/points/packages');
+}
+
+export interface ExchangeResult {
+  success: boolean;
+  message: string;
+  balance: number;
+}
+
+export async function exchangePackage(packageId: string): Promise<ApiResponse<ExchangeResult>> {
+  return request<ExchangeResult>('/points/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ package_id: packageId }),
+  });
+}

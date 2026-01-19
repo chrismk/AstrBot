@@ -5,6 +5,8 @@ import { Loading } from './components/Loading';
 import { Home } from './pages/Home';
 import { Leaderboard } from './pages/Leaderboard';
 import { Profile } from './pages/Profile';
+import { Tasks } from './pages/Tasks';
+import { Shop } from './pages/Shop';
 
 function AppContent() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -34,7 +36,9 @@ function AppContent() {
     <div className="min-h-screen bg-tg-bg">
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/tasks" element={<Tasks />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/shop" element={<Shop />} />
         <Route path="/profile" element={<Profile />} />
       </Routes>
       <BottomNav />

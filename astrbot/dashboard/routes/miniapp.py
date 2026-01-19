@@ -42,6 +42,7 @@ class MiniAppRoute(Route):
         self._db = None
         self._points_manager = None
         self._checkin_manager = None
+        self._task_manager = None
         self._init_managers()
 
         self.routes = [
@@ -56,6 +57,15 @@ class MiniAppRoute(Route):
             ("/miniapp/checkin/calendar", ("GET", self.get_checkin_calendar)),
             ("/miniapp/checkin/leaderboard", ("GET", self.get_leaderboard)),
             ("/miniapp/checkin/makeup", ("POST", self.makeup_checkin)),
+            # 任务系统
+            ("/miniapp/tasks", ("GET", self.get_tasks)),
+            ("/miniapp/tasks/claim", ("POST", self.claim_task)),
+            ("/miniapp/tasks/claim-all", ("POST", self.claim_all_tasks)),
+            ("/miniapp/tasks/stats", ("GET", self.get_task_stats)),
+            # 积分明细与商城
+            ("/miniapp/points/history", ("GET", self.get_points_history)),
+            ("/miniapp/points/packages", ("GET", self.get_points_packages)),
+            ("/miniapp/points/exchange", ("POST", self.exchange_package)),
         ]
         self.register_routes()
 
@@ -86,6 +96,15 @@ class MiniAppRoute(Route):
                 points_manager=self._points_manager,
                 config=checkin_config,
             )
+
+            # 初始化任务管理器
+            try:
+                from common.task_manager import get_task_manager
+
+                self._task_manager = get_task_manager(self._db, self._points_manager)
+                logger.info("[MiniApp] 任务管理器初始化完成")
+            except ImportError as e:
+                logger.warning(f"[MiniApp] 任务模块未安装: {e}")
 
             logger.info("[MiniApp] 管理器初始化完成")
         except ImportError as e:
@@ -652,3 +671,324 @@ class MiniAppRoute(Route):
         except Exception as e:
             logger.error(f"[MiniApp] 补签失败: {e}")
             return jsonify(Response().error(f"补签失败: {e!s}").__dict__)
+
+    # ==================== 任务系统 API ====================
+
+    async def get_tasks(self):
+        """
+        获取任务列表
+
+        GET /api/miniapp/tasks?type=daily|weekly|monthly
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._task_manager:
+                return jsonify(Response().error("任务系统未初始化").__dict__)
+
+            from common.task_manager import TaskType
+
+            # 获取任务类型参数
+            task_type_str = request.args.get("type", "daily")
+            task_type_map = {
+                "daily": TaskType.DAILY,
+                "weekly": TaskType.WEEKLY,
+                "monthly": TaskType.MONTHLY,
+            }
+            task_type = task_type_map.get(task_type_str, TaskType.DAILY)
+
+            # 获取用户任务列表
+            tasks = self._task_manager.get_user_tasks(user_id, task_type)
+
+            # 格式化返回数据
+            task_list = []
+            total_claimable_points = 0
+            claimable_count = 0
+            completed_count = 0
+
+            for task_def, progress in tasks:
+                task_data = {
+                    "task_id": task_def.task_id,
+                    "name": task_def.name,
+                    "description": task_def.description,
+                    "icon": task_def.icon,
+                    "reward_points": task_def.reward_points,
+                    "target": progress.target,
+                    "progress": progress.progress,
+                    "progress_percent": progress.progress_percent,
+                    "completed": progress.completed,
+                    "reward_claimed": progress.reward_claimed,
+                    "is_claimable": progress.is_claimable,
+                    "is_bonus": task_def.is_bonus,
+                }
+                task_list.append(task_data)
+
+                if progress.completed:
+                    completed_count += 1
+                if progress.is_claimable:
+                    claimable_count += 1
+                    total_claimable_points += task_def.reward_points
+
+            return jsonify(
+                Response()
+                .ok(
+                    {
+                        "type": task_type_str,
+                        "tasks": task_list,
+                        "summary": {
+                            "total": len(task_list),
+                            "completed": completed_count,
+                            "claimable": claimable_count,
+                            "claimable_points": total_claimable_points,
+                        },
+                    }
+                )
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取任务列表失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    async def claim_task(self):
+        """
+        领取单个任务奖励
+
+        POST /api/miniapp/tasks/claim
+        Body: { "task_id": "daily_checkin" }
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._task_manager:
+                return jsonify(Response().error("任务系统未初始化").__dict__)
+
+            data = await request.json
+            task_id = data.get("task_id", "")
+
+            if not task_id:
+                return jsonify(Response().error("请指定任务ID").__dict__)
+
+            success, message = self._task_manager.claim_reward(user_id, task_id)
+
+            return jsonify(
+                Response().ok({"success": success, "message": message}).__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 领取任务奖励失败: {e}")
+            return jsonify(Response().error(f"领取失败: {e!s}").__dict__)
+
+    async def claim_all_tasks(self):
+        """
+        一键领取所有任务奖励
+
+        POST /api/miniapp/tasks/claim-all
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._task_manager:
+                return jsonify(Response().error("任务系统未初始化").__dict__)
+
+            count, total_points = self._task_manager.claim_all_rewards(user_id)
+
+            return jsonify(
+                Response()
+                .ok(
+                    {
+                        "success": count > 0,
+                        "claimed_count": count,
+                        "total_points": total_points,
+                        "message": f"领取成功！获得 {total_points} 积分（{count}个任务）"
+                        if count > 0
+                        else "暂无可领取的奖励",
+                    }
+                )
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 一键领取失败: {e}")
+            return jsonify(Response().error(f"领取失败: {e!s}").__dict__)
+
+    async def get_task_stats(self):
+        """
+        获取任务完成统计
+
+        GET /api/miniapp/tasks/stats
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._task_manager:
+                return jsonify(Response().error("任务系统未初始化").__dict__)
+
+            stats = self._task_manager.get_completion_stats(user_id)
+
+            return jsonify(Response().ok(stats).__dict__)
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取任务统计失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    # ==================== 积分明细与商城 API ====================
+
+    async def get_points_history(self):
+        """
+        获取积分流水
+
+        GET /api/miniapp/points/history?page=1&limit=20
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._db:
+                return jsonify(Response().error("数据库未初始化").__dict__)
+
+            page = int(request.args.get("page", 1))
+            limit = min(int(request.args.get("limit", 20)), 50)
+            offset = (page - 1) * limit
+
+            with self._db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 获取总数
+                cursor.execute(
+                    "SELECT COUNT(*) FROM points_transactions WHERE user_id = ?",
+                    (user_id,),
+                )
+                total = cursor.fetchone()[0]
+
+                # 获取流水记录
+                cursor.execute(
+                    """
+                    SELECT amount, balance_after, type, source, description, created_at
+                    FROM points_transactions
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (user_id, limit, offset),
+                )
+
+                records = []
+                for row in cursor.fetchall():
+                    records.append(
+                        {
+                            "amount": row["amount"],
+                            "balance_after": row["balance_after"],
+                            "type": row["type"],
+                            "source": row["source"],
+                            "description": row["description"],
+                            "created_at": row["created_at"],
+                        }
+                    )
+
+            return jsonify(
+                Response()
+                .ok(
+                    {
+                        "records": records,
+                        "pagination": {
+                            "page": page,
+                            "limit": limit,
+                            "total": total,
+                            "has_more": offset + len(records) < total,
+                        },
+                    }
+                )
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取积分流水失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    async def get_points_packages(self):
+        """
+        获取可购买的配额包列表
+
+        GET /api/miniapp/points/packages
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._points_manager:
+                return jsonify(Response().error("积分系统未初始化").__dict__)
+
+            from common.points_manager import PointsManager
+
+            packages = []
+            for pkg_id, pkg_config in PointsManager.BOOST_PACKAGES.items():
+                packages.append(
+                    {
+                        "package_id": pkg_id,
+                        "name": pkg_config["description"],
+                        "points_cost": pkg_config["points_cost"],
+                        "boost_amount": pkg_config["boost_amount"],
+                        "days": pkg_config["days"],
+                        "action_type": pkg_config["action_type"],
+                    }
+                )
+
+            # 获取用户当前积分余额
+            balance = await self._points_manager.get_balance(user_id)
+
+            return jsonify(
+                Response().ok({"packages": packages, "balance": balance}).__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取配额包列表失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    async def exchange_package(self):
+        """
+        积分兑换配额包
+
+        POST /api/miniapp/points/exchange
+        Body: { "package_id": "music_flac_5" }
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._points_manager:
+                return jsonify(Response().error("积分系统未初始化").__dict__)
+
+            data = await request.json
+            package_id = data.get("package_id", "")
+
+            if not package_id:
+                return jsonify(Response().error("请指定配额包ID").__dict__)
+
+            success, message = await self._points_manager.exchange_boost_package(
+                user_id, package_id
+            )
+
+            # 获取更新后余额
+            balance = await self._points_manager.get_balance(user_id)
+
+            return jsonify(
+                Response()
+                .ok({"success": success, "message": message, "balance": balance})
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 兑换配额包失败: {e}")
+            return jsonify(Response().error(f"兑换失败: {e!s}").__dict__)

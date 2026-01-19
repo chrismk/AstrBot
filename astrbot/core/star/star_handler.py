@@ -114,6 +114,8 @@ class StarHandlerRegistry(Generic[T]):
         plugins_name: list[str] | None = None,
     ) -> list[StarHandlerMetadata]:
         handlers = []
+        seen_handlers = set()  # 用于去重：(plugin_name, handler_name)
+        
         for handler in self._handlers:
             # 过滤事件类型
             if handler.event_type != event_type:
@@ -140,6 +142,15 @@ class StarHandlerRegistry(Generic[T]):
                     and not plugin.reserved
                 ):
                     continue
+            
+            # 去重逻辑：按 (plugin_name, handler_name) 去重
+            plugin = star_map.get(handler.handler_module_path)
+            if plugin:
+                handler_key = (plugin.name, handler.handler_name)
+                if handler_key in seen_handlers:
+                    continue  # 跳过重复的处理器
+                seen_handlers.add(handler_key)
+            
             handlers.append(handler)
         return handlers
 

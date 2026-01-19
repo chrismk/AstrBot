@@ -6,6 +6,7 @@
 
 ### 📅 版本历史
 
+- **v2.4** (2025-11-30) - 新增"用户输入后编辑机器人消息"方案，解决会话模式下编辑之前消息的问题
 - **v1.3** (2025-11-23) - 新增"常见问题与解决方案"章节，记录事件传播、会话步骤一致性、退出流程等关键问题的解决方案
 - **v1.2** (2025-11-20) - 新增 NavigationHandler、SessionManager、LarkMessageHelper 通用模块使用说明
 - **v1.1** (2025-11-15) - 新增回调路由器和自动停止事件传播装饰器
@@ -277,6 +278,137 @@ if session and session.get('_exiting'):
 | 企业微信 | ✅ | 5分钟 | MessageEditor |
 | 钉钉 | ✅ | 24小时 | MessageEditor |
 | 微信公众号 | ❌ | - | 不支持 |
+
+---
+
+### 6. 用户输入后编辑机器人消息 ✅ 推荐 (v2.4)
+
+在会话模式下，用户输入文本后需要编辑之前机器人发送的消息（而非用户的消息）。这需要在会话数据中保存机器人消息ID。
+
+**场景示例**：
+1. 机器人发送"请输入推送时间"消息（带按钮）
+2. 用户输入 `19:30`
+3. 机器人编辑之前的消息为"✅ 设置成功"
+
+**实现步骤**：
+
+**Step 1: 显示输入提示时，保存消息ID到会话**
+
+```python
+async def _show_edit_time(self, event: AstrMessageEvent, sub_id: int, capabilities: Dict):
+    """显示编辑时间页面"""
+    session_id = event.get_session_id()
+    
+    # 获取当前回调消息ID（这是机器人发送的消息）
+    callback_msg_id = getattr(event.message_obj, 'message_id', None)
+    
+    # 保存消息ID到会话数据
+    self.session_manager.update_session(
+        session_id,
+        step=self.Step.EDIT_TIME,
+        data={
+            'subscription_id': sub_id,
+            'input_message_id': callback_msg_id  # ⭐ 关键：保存消息ID
+        }
+    )
+    
+    # 显示输入提示（编辑当前消息）
+    message = "⏰ 请输入新的推送时间 (如 19:30)"
+    async for result in MessageEditor.edit_or_send(event, message, keyboard):
+        yield result
+```
+
+**Step 2: 用户输入后，使用保存的消息ID编辑**
+
+```python
+async def _handle_edit_time_input(self, event: AstrMessageEvent, time_str: str, sub_id: int, capabilities: Dict):
+    """处理用户输入的时间"""
+    # 验证和处理输入...
+    success = self.subscription_manager.update_push_time(sub_id, time_str)
+    
+    # 构建成功消息
+    message = f"✅ 推送时间已更新为 {time_str}"
+    keyboard = builder.build_navigation_buttons()
+    
+    # 从会话中获取之前保存的消息ID
+    session_id = event.get_session_id()
+    session = self.session_manager.get_session(session_id)
+    input_message_id = session.get('data', {}).get('input_message_id') if session else None
+    
+    # 尝试编辑之前的消息
+    if input_message_id and capabilities.get('supports_buttons'):
+        try:
+            platform_name = event.get_platform_name()
+            if platform_name == "telegram":
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                
+                # 转换键盘格式
+                tg_keyboard = None
+                if keyboard and hasattr(keyboard, 'buttons'):
+                    tg_keyboard_buttons = []
+                    for row in keyboard.buttons:
+                        tg_row = [
+                            InlineKeyboardButton(text=btn['text'], callback_data=btn.get('callback_data', ''))
+                            if 'callback_data' in btn
+                            else InlineKeyboardButton(text=btn['text'], url=btn.get('url', ''))
+                            for btn in row
+                        ]
+                        tg_keyboard_buttons.append(tg_row)
+                    tg_keyboard = InlineKeyboardMarkup(tg_keyboard_buttons)
+                
+                # 编辑之前的消息
+                chat_id = event.message_obj.group_id or event.get_sender_id()
+                await event.client.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=int(input_message_id),
+                    text=message,
+                    reply_markup=tg_keyboard
+                )
+                logger.debug(f"[Plugin] 已编辑消息: {input_message_id}")
+                return  # 编辑成功，直接返回
+        except Exception as e:
+            logger.warning(f"[Plugin] 编辑消息失败: {e}")
+    
+    # 编辑失败或不支持，发送新消息
+    async for result in MessageEditor.edit_or_send(event, message, keyboard):
+        yield result
+```
+
+**关键点**：
+- ✅ 在回调处理时（点击按钮进入输入页面），`event.message_obj.message_id` 是机器人的消息ID
+- ✅ 将这个ID保存到会话的 `data` 字段中
+- ✅ 用户输入后，从会话中取出这个ID，用 `edit_message_text` 编辑
+- ✅ **编辑成功后必须调用 `event.stop_event()` 停止事件传播，防止流转到 LLM**
+- ✅ 编辑失败时回退到发送新消息
+
+**Step 3: 在 on_message 中停止事件传播**
+
+```python
+@filter.platform_adapter_type(filter.PlatformAdapterType.ALL)
+async def on_message(self, event: AstrMessageEvent):
+    """处理会话消息"""
+    # ... 检查会话 ...
+    
+    # 处理会话输入
+    has_result = False
+    async for result in self.session_handler.handle_session_input(event, session):
+        has_result = True
+        yield result
+    
+    # ⭐ 关键：如果有结果，停止事件传播，防止流转到 LLM
+    if has_result:
+        event.stop_event()
+```
+
+**适用场景**：
+- 修改推送时间
+- 输入反馈内容
+- 输入搜索关键词
+- 任何需要用户输入后更新之前消息的场景
+
+**参考实现**：
+- `astrbot_plugin_quota_admin/main.py` - 反馈功能
+- `astrbot_plugin_subscription/handlers/session_handler.py` - 修改推送时间
 
 ---
 
@@ -632,6 +764,37 @@ class MyPlugin(Star):
 ━━━━━━━━━━━━━━━━━━
 💡 p-上页 | n-下页 | h-首页 | 0-退出
 ```
+
+### 标准化翻页按钮规范
+
+**按钮模式（Telegram/Discord）翻页按钮显示规则**：
+
+| 当前页 | 显示按钮 |
+|--------|----------|
+| 第 1 页 | `下页 ➡️` |
+| 第 2 页 | `⬅️ 上页` + `下页 ➡️` |
+| 第 3 页及以上 | `⬅️ 上页` + `🏠 首页` + `下页 ➡️` |
+| 最后一页 | `⬅️ 上页` + `🏠 首页`（如果 ≥3 页） |
+
+**实现示例**：
+```python
+# 翻页按钮（标准化格式）
+nav_row = []
+if page > 1:
+    nav_row.append({"text": "⬅️ 上页", "callback_data": f"{prefix}:{page-1}"})
+# 第三页及以上显示首页按钮
+if page >= 3:
+    nav_row.append({"text": "🏠 首页", "callback_data": f"{prefix}:1"})
+if page < total_pages:
+    nav_row.append({"text": "下页 ➡️", "callback_data": f"{prefix}:{page+1}"})
+if nav_row:
+    buttons.append(nav_row)
+```
+
+**会话模式翻页提示**：
+- 第 1 页：`n-下页 | 0-退出`
+- 第 2 页：`p-上页 | n-下页 | 0-退出`
+- 第 3 页及以上：`p-上页 | n-下页 | h-首页 | 0-退出`
 
 **统一导航键定义**：
 | 键 | 功能 | 说明 |

@@ -73,6 +73,9 @@ class MiniAppRoute(Route):
             ("/miniapp/subscriptions/sources", ("GET", self.get_subscription_sources)),
             ("/miniapp/subscriptions/subscribe", ("POST", self.subscribe_source)),
             ("/miniapp/subscriptions/unsubscribe", ("POST", self.unsubscribe)),
+            # 搜索功能
+            ("/miniapp/search", ("GET", self.search)),
+            ("/miniapp/search/hot", ("GET", self.get_hot_searches)),
         ]
         self.register_routes()
 
@@ -1247,3 +1250,183 @@ class MiniAppRoute(Route):
         except Exception as e:
             logger.error(f"[MiniApp] 取消订阅失败: {e}")
             return jsonify(Response().error(f"取消失败: {e!s}").__dict__)
+
+    # ==================== 搜索功能 API ====================
+
+    async def search(self):
+        """
+        统一搜索接口
+
+        GET /api/miniapp/search?type=book|music&q=xxx&page=1&limit=20&platform=qq
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            search_type = request.args.get("type", "book")
+            query = request.args.get("q", "").strip()
+            page = int(request.args.get("page", 1))
+            limit = min(int(request.args.get("limit", 20)), 50)
+            platform = request.args.get("platform", "")
+
+            if not query:
+                return jsonify(Response().error("请输入搜索关键词").__dict__)
+
+            results = []
+            total = 0
+
+            if search_type == "book":
+                results, total = await self._search_books(query, page, limit)
+            elif search_type == "music":
+                results, total = await self._search_music(
+                    query, page, limit, platform or "qq"
+                )
+            else:
+                return jsonify(Response().error(f"不支持的搜索类型: {search_type}").__dict__)
+
+            return jsonify(
+                Response()
+                .ok(
+                    {
+                        "type": search_type,
+                        "query": query,
+                        "results": results,
+                        "pagination": {
+                            "page": page,
+                            "limit": limit,
+                            "total": total,
+                            "has_more": page * limit < total,
+                        },
+                    }
+                )
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 搜索失败: {e}")
+            return jsonify(Response().error(f"搜索失败: {e!s}").__dict__)
+
+    async def _search_books(self, query: str, page: int, limit: int) -> tuple:
+        """搜索书籍"""
+        try:
+            from astrbot_plugin_book.handlers.book_api import BookAPI
+
+            book_api = BookAPI()
+            books, total = await book_api.search_books(query, page, limit)
+
+            results = []
+            for book in books:
+                results.append(
+                    {
+                        "id": book.get("id", ""),
+                        "title": book.get("title", ""),
+                        "author": book.get("author", ""),
+                        "extension": book.get("extension", ""),
+                        "filesize": book.get("filesize", 0),
+                        "cover": book.get("cover", ""),
+                    }
+                )
+
+            return results, total
+
+        except ImportError:
+            logger.warning("[MiniApp] 书籍插件未安装")
+            return [], 0
+        except Exception as e:
+            logger.error(f"[MiniApp] 书籍搜索失败: {e}")
+            return [], 0
+
+    async def _search_music(
+        self, query: str, page: int, limit: int, platform: str
+    ) -> tuple:
+        """搜索音乐"""
+        try:
+            from astrbot_plugin_music.music_api_client import MusicAPIClient
+
+            # 从插件配置获取 API 设置
+            music_config = self.config.get("plugins", {}).get("music", {})
+            api_url = music_config.get("api_url", "http://localhost:19003")
+            api_key = music_config.get("api_key", "")
+
+            music_api = MusicAPIClient(api_url, api_key)
+            data = await music_api.search(query, platform, page, limit)
+
+            results = []
+            for song in data.get("songs", []):
+                results.append(
+                    {
+                        "id": song.get("id", ""),
+                        "title": song.get("name", song.get("title", "")),
+                        "artist": song.get("artist", ""),
+                        "album": song.get("album", ""),
+                        "duration": song.get("duration", 0),
+                        "cover": song.get("cover", song.get("pic", "")),
+                        "platform": platform,
+                    }
+                )
+
+            return results, data.get("total", 0)
+
+        except ImportError:
+            logger.warning("[MiniApp] 音乐插件未安装")
+            return [], 0
+        except Exception as e:
+            logger.error(f"[MiniApp] 音乐搜索失败: {e}")
+            return [], 0
+
+    async def get_hot_searches(self):
+        """
+        获取热搜榜单
+
+        GET /api/miniapp/search/hot?type=book|music&limit=10
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            search_type = request.args.get("type", "")
+            limit = min(int(request.args.get("limit", 10)), 50)
+
+            hot_searches: dict[str, list] = {}
+
+            if not self._db:
+                return jsonify(Response().ok({"hot_searches": hot_searches}).__dict__)
+
+            # 获取热搜统计
+            try:
+                from common.search_statistics import get_search_statistics
+
+                stats = get_search_statistics(self._db)
+
+                if search_type:
+                    # 指定类型
+                    hot = stats.get_popular_searches(search_type, days=7, limit=limit)
+                    hot_searches[search_type] = [
+                        {
+                            "keyword": item["keyword"],
+                            "count": item["search_count"],
+                        }
+                        for item in hot
+                    ]
+                else:
+                    # 所有类型
+                    for plugin in ["book", "music"]:
+                        hot = stats.get_popular_searches(plugin, days=7, limit=limit)
+                        hot_searches[plugin] = [
+                            {
+                                "keyword": item["keyword"],
+                                "count": item["search_count"],
+                            }
+                            for item in hot
+                        ]
+
+            except ImportError:
+                logger.warning("[MiniApp] 搜索统计模块未安装")
+
+            return jsonify(Response().ok({"hot_searches": hot_searches}).__dict__)
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取热搜失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)

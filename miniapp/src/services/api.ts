@@ -383,3 +383,71 @@ export async function unsubscribe(subscriptionId: number): Promise<ApiResponse<U
     body: JSON.stringify({ subscription_id: subscriptionId }),
   });
 }
+
+// ==================== 搜索功能 API ====================
+
+export interface BookResult {
+  id: string;
+  title: string;
+  author: string;
+  extension: string;
+  filesize: number;
+  cover: string;
+}
+
+export interface MusicResult {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  cover: string;
+  platform: string;
+}
+
+export type SearchResult = BookResult | MusicResult;
+
+export interface SearchData {
+  type: string;
+  query: string;
+  results: SearchResult[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    has_more: boolean;
+  };
+}
+
+export async function search(
+  type: 'book' | 'music',
+  query: string,
+  page: number = 1,
+  limit: number = 20,
+  platform?: string
+): Promise<ApiResponse<SearchData>> {
+  let url = `/search?type=${type}&q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`;
+  if (platform) {
+    url += `&platform=${platform}`;
+  }
+  return request<SearchData>(url);
+}
+
+export interface HotSearchItem {
+  keyword: string;
+  count: number;
+}
+
+export interface HotSearchesData {
+  hot_searches: {
+    [key: string]: HotSearchItem[];
+  };
+}
+
+export async function getHotSearches(type?: string, limit: number = 10): Promise<ApiResponse<HotSearchesData>> {
+  let url = `/search/hot?limit=${limit}`;
+  if (type) {
+    url += `&type=${type}`;
+  }
+  return request<HotSearchesData>(url);
+}

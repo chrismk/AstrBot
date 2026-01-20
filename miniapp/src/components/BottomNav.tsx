@@ -9,8 +9,8 @@ interface NavItem {
 const navItems: NavItem[] = [
   { path: '/', label: '签到', icon: '✅' },
   { path: '/tasks', label: '任务', icon: '📋' },
+  { path: '/search', label: '搜索', icon: '🔍' },
   { path: '/subscriptions', label: '订阅', icon: '📰' },
-  { path: '/shop', label: '商城', icon: '🛒' },
   { path: '/profile', label: '我的', icon: '👤' },
 ];
 

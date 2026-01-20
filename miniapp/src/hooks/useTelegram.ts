@@ -11,12 +11,45 @@ export interface TelegramUser {
   photo_url?: string;
 }
 
+// 检测是否在 Telegram 环境中运行
+export function isTelegramEnvironment(): boolean {
+  // 检查 Telegram WebApp 对象是否存在且有有效数据
+  try {
+    // 检查 window.Telegram 对象
+    if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp) {
+      const tgWebApp = (window as any).Telegram.WebApp;
+      // 检查是否有 initData（只有真实 Telegram 环境才有）
+      if (tgWebApp.initData && tgWebApp.initData.length > 0) {
+        return true;
+      }
+      // 检查是否有用户信息
+      if (tgWebApp.initDataUnsafe?.user?.id) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function useTelegram() {
   const [isReady, setIsReady] = useState(false);
   const [initData, setInitData] = useState('');
   const [user, setUser] = useState<TelegramUser | null>(null);
+  const [isTelegram, setIsTelegram] = useState<boolean | null>(null); // null = 检测中
 
   useEffect(() => {
+    // 检测是否在 Telegram 环境
+    const inTelegram = isTelegramEnvironment();
+    setIsTelegram(inTelegram);
+
+    if (!inTelegram) {
+      // 不在 Telegram 环境，不初始化 SDK
+      setIsReady(true);
+      return;
+    }
+
     // 初始化 Telegram Web App
     WebApp.ready();
     WebApp.expand();
@@ -82,6 +115,7 @@ export function useTelegram() {
 
   return {
     isReady,
+    isTelegram,
     initData,
     user,
     webApp: WebApp,

@@ -100,22 +100,30 @@ export function Profile() {
       <div className="card">
         <div className="text-sm text-tg-hint mb-3">🔧 更多功能</div>
         <div className="space-y-2">
-          <div className="flex items-center justify-between p-3 bg-tg-bg rounded-lg">
+          <a href="/miniapp/search" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
             <span>📚 书籍搜索</span>
-            <span className="text-tg-hint text-sm">即将开放</span>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-tg-bg rounded-lg">
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
+          <a href="/miniapp/search" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
             <span>🎵 音乐搜索</span>
-            <span className="text-tg-hint text-sm">即将开放</span>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-tg-bg rounded-lg">
-            <span>🎬 豆瓣评分</span>
-            <span className="text-tg-hint text-sm">即将开放</span>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-tg-bg rounded-lg">
-            <span>🔍 网盘搜索</span>
-            <span className="text-tg-hint text-sm">即将开放</span>
-          </div>
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
+          <a href="/miniapp/search" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
+            <span>⭐ 豆瓣评分</span>
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
+          <a href="/miniapp/search" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
+            <span>📁 网盘搜索</span>
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
+          <a href="/miniapp/leaderboard" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
+            <span>🏆 排行榜</span>
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
+          <a href="/miniapp/shop" className="flex items-center justify-between p-3 bg-tg-bg rounded-lg active:bg-gray-100 dark:active:bg-gray-800">
+            <span>🛍 积分商城</span>
+            <span className="text-tg-hint text-sm">→</span>
+          </a>
         </div>
       </div>
     </div>

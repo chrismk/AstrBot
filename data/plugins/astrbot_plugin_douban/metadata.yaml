@@ -1,0 +1,4 @@
+name: "astrbot_plugin_douban"
+author: "Chrismk"
+desc: "豆瓣评分图片显示插件 - 自动识别豆瓣链接并生成评分图片"
+version: "1.0.0"

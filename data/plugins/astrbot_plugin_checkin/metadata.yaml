@@ -1,0 +1,5 @@
+name: checkin
+author: AstrBot Team
+desc: 签到系统插件 - 每日签到获取积分，支持连续签到奖励、补签、排行榜等功能
+version: 1.0.0
+repo: https://github.com/AstrBot/astrbot_plugin_checkin

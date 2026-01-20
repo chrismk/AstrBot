@@ -6,14 +6,18 @@ import {
   SearchData,
   BookResult,
   MusicResult,
+  DoubanResult,
+  PansouResult,
   HotSearchItem,
 } from '../services/api';
 
-type SearchType = 'book' | 'music';
+type SearchType = 'book' | 'music' | 'douban' | 'pansou';
 
 const SEARCH_TYPES: { type: SearchType; label: string; icon: string }[] = [
   { type: 'book', label: '书籍', icon: '📚' },
   { type: 'music', label: '音乐', icon: '🎵' },
+  { type: 'douban', label: '豆瓣', icon: '⭐' },
+  { type: 'pansou', label: '网盘', icon: '📁' },
 ];
 
 const MUSIC_PLATFORMS = [
@@ -22,11 +26,35 @@ const MUSIC_PLATFORMS = [
   { id: 'kugou', name: '酷狗' },
 ];
 
+const DOUBAN_TYPES = [
+  { id: 'book', name: '书籍' },
+  { id: 'movie', name: '电影' },
+];
+
+const CLOUD_TYPES = [
+  { id: '', name: '全部' },
+  { id: 'baidu', name: '百度网盘' },
+  { id: 'quark', name: '夸克' },
+  { id: 'ali', name: '阿里云' },
+  { id: '115', name: '115' },
+];
+
+// 网盘类型图标映射
+const CLOUD_TYPE_ICONS: { [key: string]: string } = {
+  baidu: '🟡',
+  quark: '🟣',
+  ali: '🟠',
+  '115': '🔵',
+  unknown: '📁',
+};
+
 export function Search() {
   const { hapticFeedback } = useTelegram();
   const [searchType, setSearchType] = useState<SearchType>('book');
   const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('qq');
+  const [doubanType, setDoubanType] = useState<'book' | 'movie'>('book');
+  const [cloudType, setCloudType] = useState('');
   const [searchData, setSearchData] = useState<SearchData | null>(null);
   const [hotSearches, setHotSearches] = useState<{ [key: string]: HotSearchItem[] }>({});
   const [loading, setLoading] = useState(false);
@@ -61,7 +89,9 @@ export function Search() {
       searchQuery,
       page,
       20,
-      searchType === 'music' ? platform : undefined
+      searchType === 'music' ? platform : undefined,
+      searchType === 'douban' ? doubanType : undefined,
+      searchType === 'pansou' ? cloudType : undefined
     );
 
     if (response.status === 'ok' && response.data) {
@@ -162,6 +192,93 @@ export function Search() {
     </div>
   );
 
+  // 渲染豆瓣结果
+  const renderDoubanItem = (item: DoubanResult) => (
+    <a
+      key={item.id}
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex gap-3 p-3 bg-tg-secondary-bg rounded-xl"
+    >
+      {item.cover ? (
+        <img
+          src={item.cover}
+          alt=""
+          className="w-12 h-16 rounded-lg object-cover"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      ) : (
+        <div className="w-12 h-16 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xl">
+          {item.douban_type === 'movie' ? '🎬' : '📖'}
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-tg-text line-clamp-1">{item.title}</div>
+        {item.rating > 0 && (
+          <div className="flex items-center gap-1 mt-1">
+            <span className="text-yellow-500">⭐</span>
+            <span className="text-sm text-tg-text">{item.rating}</span>
+            <span className="text-xs text-tg-hint">({item.rating_count}人)</span>
+          </div>
+        )}
+        <div className="text-xs text-tg-hint mt-1 line-clamp-1">
+          {item.douban_type === 'book' ? (
+            <>{item.author?.join(', ')} {item.publisher && `/ ${item.publisher}`}</>
+          ) : (
+            <>{item.director?.join(', ')} {item.actors?.slice(0, 3).join(', ')}</>
+          )}
+          {item.year && ` / ${item.year}`}
+        </div>
+      </div>
+    </a>
+  );
+
+  // 渲染网盘结果
+  const renderPansouItem = (item: PansouResult, index: number) => (
+    <div key={`${item.url}-${index}`} className="p-3 bg-tg-secondary-bg rounded-xl">
+      <div className="flex items-start gap-2">
+        <span className="text-lg">{CLOUD_TYPE_ICONS[item.cloud_type] || CLOUD_TYPE_ICONS.unknown}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-tg-text line-clamp-2">
+            {item.title || item.note || '未命名资源'}
+          </div>
+          {item.content && (
+            <div className="text-xs text-tg-hint mt-1 line-clamp-2">{item.content}</div>
+          )}
+          <div className="flex items-center gap-2 mt-2 text-xs text-tg-hint">
+            <span className="px-1.5 py-0.5 bg-tg-bg rounded">{item.cloud_type}</span>
+            {item.source && <span>{item.source}</span>}
+            {item.datetime && <span>{item.datetime}</span>}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 py-1.5 text-center bg-tg-button text-tg-button-text rounded-lg text-sm"
+        >
+          打开链接
+        </a>
+        {item.password && (
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(item.password);
+              hapticFeedback('light');
+            }}
+            className="px-3 py-1.5 bg-tg-secondary-bg border border-tg-hint/20 text-tg-text rounded-lg text-sm"
+          >
+            密码: {item.password}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="p-4 pb-20">
       {/* 搜索框 */}
@@ -171,7 +288,7 @@ export function Search() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder={`搜索${searchType === 'book' ? '书籍' : '音乐'}...`}
+          placeholder={`搜索${SEARCH_TYPES.find(t => t.type === searchType)?.label || ''}...`}
           className="flex-1 px-4 py-2.5 bg-tg-secondary-bg rounded-xl text-tg-text placeholder-tg-hint outline-none focus:ring-2 focus:ring-tg-button/50"
         />
         <button
@@ -219,6 +336,44 @@ export function Search() {
         </div>
       )}
 
+      {/* 豆瓣类型选择 */}
+      {searchType === 'douban' && (
+        <div className="flex gap-2 mb-4">
+          {DOUBAN_TYPES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setDoubanType(t.id as 'book' | 'movie')}
+              className={`px-3 py-1.5 rounded-lg text-xs transition-all ${
+                doubanType === t.id
+                  ? 'bg-tg-button/20 text-tg-button'
+                  : 'bg-tg-secondary-bg text-tg-hint'
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 网盘类型选择 */}
+      {searchType === 'pansou' && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {CLOUD_TYPES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setCloudType(t.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs transition-all ${
+                cloudType === t.id
+                  ? 'bg-tg-button/20 text-tg-button'
+                  : 'bg-tg-secondary-bg text-tg-hint'
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 搜索结果 */}
       {loading ? (
         <div className="flex items-center justify-center h-32">
@@ -230,11 +385,20 @@ export function Search() {
             找到 {searchData.pagination.total} 个结果
           </div>
           <div className="space-y-2">
-            {searchData.results.map((item) =>
-              searchType === 'book'
-                ? renderBookItem(item as BookResult)
-                : renderMusicItem(item as MusicResult)
-            )}
+            {searchData.results.map((item, index) => {
+              switch (searchType) {
+                case 'book':
+                  return renderBookItem(item as BookResult);
+                case 'music':
+                  return renderMusicItem(item as MusicResult);
+                case 'douban':
+                  return renderDoubanItem(item as DoubanResult);
+                case 'pansou':
+                  return renderPansouItem(item as PansouResult, index);
+                default:
+                  return null;
+              }
+            })}
           </div>
 
           {/* 加载更多 */}

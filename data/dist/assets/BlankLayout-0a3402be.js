@@ -1,0 +1,1 @@
+import{y as a,o as e,c as t,w as o,b as s,h as n,a2 as r,a3 as c}from"./index-d17deae4.js";const f=a({__name:"BlankLayout",setup(p){return(u,_)=>(e(),t(c,null,{default:o(()=>[s(n(r))]),_:1}))}});export{f as default};

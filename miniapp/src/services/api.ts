@@ -405,7 +405,33 @@ export interface MusicResult {
   platform: string;
 }
 
-export type SearchResult = BookResult | MusicResult;
+export interface DoubanResult {
+  id: string;
+  title: string;
+  url: string;
+  cover: string;
+  rating: number;
+  rating_count: number;
+  year: string;
+  douban_type: 'book' | 'movie';
+  author?: string[];  // 书籍
+  publisher?: string;  // 书籍
+  director?: string[];  // 电影
+  actors?: string[];  // 电影
+}
+
+export interface PansouResult {
+  url: string;
+  cloud_type: string;
+  password: string;
+  title: string;
+  content: string;
+  note: string;
+  datetime: string;
+  source: string;
+}
+
+export type SearchResult = BookResult | MusicResult | DoubanResult | PansouResult;
 
 export interface SearchData {
   type: string;
@@ -419,16 +445,34 @@ export interface SearchData {
   };
 }
 
+export interface SearchOptions {
+  type: 'book' | 'music' | 'douban' | 'pansou';
+  query: string;
+  page?: number;
+  limit?: number;
+  platform?: string;  // 音乐平台
+  doubanType?: 'book' | 'movie';  // 豆瓣类型
+  cloudTypes?: string;  // 网盘类型
+}
+
 export async function search(
-  type: 'book' | 'music',
+  type: 'book' | 'music' | 'douban' | 'pansou',
   query: string,
   page: number = 1,
   limit: number = 20,
-  platform?: string
+  platform?: string,
+  doubanType?: 'book' | 'movie',
+  cloudTypes?: string
 ): Promise<ApiResponse<SearchData>> {
   let url = `/search?type=${type}&q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`;
   if (platform) {
     url += `&platform=${platform}`;
+  }
+  if (doubanType) {
+    url += `&douban_type=${doubanType}`;
+  }
+  if (cloudTypes) {
+    url += `&cloud_types=${encodeURIComponent(cloudTypes)}`;
   }
   return request<SearchData>(url);
 }

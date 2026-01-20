@@ -1,0 +1,69 @@
+{
+  "page_size": {
+    "type": "int",
+    "description": "每页显示的搜索结果数量",
+    "hint": "控制搜索结果每页显示多少条。建议范围：5-20",
+    "default": 16
+  },
+  "session_timeout": {
+    "type": "int",
+    "description": "会话超时时间（分钟）",
+    "hint": "用户在会话模式下的操作超时时间，超时后需要重新搜索",
+    "default": 1
+  },
+  "default_platform": {
+    "type": "string",
+    "description": "默认音乐平台",
+    "hint": "搜索时默认使用的音乐平台",
+    "default": "qq",
+    "options": ["qq", "netease", "kugou", "kuwo"]
+  },
+  "quota_search_daily_limit": {
+    "type": "int",
+    "description": "搜索每日次数限制",
+    "hint": "每个用户每天可以搜索音乐的次数。-1 表示无限制，VIP用户始终无限制",
+    "default": -1
+  },
+  "quota_search_points_cost": {
+    "type": "int",
+    "description": "搜索消耗积分",
+    "hint": "每次搜索音乐消耗的积分。0 表示免费，VIP用户始终免费",
+    "default": 0
+  },
+  "quota_download_daily_limit": {
+    "type": "int",
+    "description": "下载每日次数限制",
+    "hint": "每个用户每天可以下载音乐的次数。-1 表示无限制，VIP用户始终无限制",
+    "default": -1
+  },
+  "quota_download_points_cost": {
+    "type": "int",
+    "description": "下载消耗积分",
+    "hint": "每次下载音乐消耗的积分。0 表示免费，VIP用户始终免费",
+    "default": 0
+  },
+  "rate_limit_search_max": {
+    "type": "int",
+    "description": "搜索 - 限流最大请求数",
+    "hint": "每个用户在时间窗口内最多可以搜索的次数。防止恶意刷请求",
+    "default": 60
+  },
+  "rate_limit_search_window": {
+    "type": "int",
+    "description": "搜索 - 限流时间窗口（秒）",
+    "hint": "限流的时间窗口。例如：60次/60秒 表示每分钟最多60次",
+    "default": 60
+  },
+  "rate_limit_download_max": {
+    "type": "int",
+    "description": "下载 - 限流最大请求数",
+    "hint": "每个用户在时间窗口内最多可以下载的次数。防止恶意刷请求",
+    "default": 60
+  },
+  "rate_limit_download_window": {
+    "type": "int",
+    "description": "下载 - 限流时间窗口（秒）",
+    "hint": "限流的时间窗口。例如：60次/60秒 表示每分钟最多60次",
+    "default": 60
+  }
+}

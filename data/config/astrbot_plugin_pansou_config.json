@@ -1,0 +1,8 @@
+﻿{
+  "page_size": 15,
+  "session_timeout": 1,
+  "quota_search_daily_limit": -1,
+  "quota_search_points_cost": 0,
+  "rate_limit_search_max": 30,
+  "rate_limit_search_window": 60
+}

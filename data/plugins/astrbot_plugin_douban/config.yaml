@@ -1,0 +1,24 @@
+# 豆瓣评分插件配置文件
+
+# API配置
+douban_api:
+  # 豆瓣图片API地址
+  image_api: "https://api.wowoziyuan.com/douban/index.php"
+  # 豆瓣评论API地址
+  comment_api: "https://m.douban.com/rexxar/api/v2"
+
+# 评论配置
+comments:
+  # 最大评论数量
+  max_count: 4
+  # 最大字符数限制（避免caption过长）
+  max_chars: 800
+  # 评论排序方式 (hot/time)
+  order_by: "hot"
+
+# 请求配置
+request:
+  # 请求超时时间（秒）
+  timeout: 10
+  # 用户代理
+  user_agent: "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.109 Safari/537.36 CrKey/1.54.248666 Edg/127.0.0.0"

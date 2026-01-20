@@ -1,0 +1,15 @@
+﻿{
+    "base_points": 10,
+    "random_points_min": 1,
+    "random_points_max": 20,
+    "lucky_chance": 0.1,
+    "lucky_multiplier": 2.0,
+    "streak_bonus_3": 1.2,
+    "streak_bonus_7": 1.5,
+    "streak_bonus_15": 1.8,
+    "streak_bonus_30": 2.0,
+    "perfect_month_bonus": 200,
+    "makeup_enabled": true,
+    "makeup_max_days": 7,
+    "makeup_cost": 50
+}

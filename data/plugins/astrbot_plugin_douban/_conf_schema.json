@@ -1,0 +1,104 @@
+{
+  "page_size": {
+    "type": "int",
+    "description": "每页显示的搜索结果数量",
+    "hint": "控制搜索结果每页显示多少条。建议范围：5-20",
+    "default": 15
+  },
+  "session_timeout": {
+    "type": "int",
+    "description": "会话超时时间（分钟）",
+    "hint": "用户在会话模式下的操作超时时间，超时后需要重新搜索。建议范围：1-10分钟",
+    "default": 1
+  },
+  "cache_ttl": {
+    "type": "int",
+    "description": "缓存过期时间（秒）",
+    "hint": "搜索结果和详情信息的缓存时间。设置较长可减少API请求，但数据可能不够新。建议范围：300-3600秒",
+    "default": 600
+  },
+  "api_timeout": {
+    "type": "int",
+    "description": "API请求超时时间（秒）",
+    "hint": "请求豆瓣API的超时时间，网络较慢时可适当增加。建议范围：5-30秒",
+    "default": 15
+  },
+  "ai_prompt": {
+    "type": "text",
+    "description": "AI解读豆瓣信息时使用的提示词",
+    "hint": "自定义AI解读提示词，用于指导AI如何分析和推荐豆瓣书籍/电影。可以包含具体的分析角度和要求。",
+    "default": "请作为一位资深影评人和读书博主，用生动有趣的语言为用户推荐这部作品。重点关注：1) 作品的核心内容和独特价值 2) 适合什么样的观众/读者群体 3) 观看/阅读这部作品能获得什么收获 4) 个人推荐理由。语言要简洁明了，贴近生活，避免过于学术化的表达。"
+  },
+  "enable_ai_interpretation": {
+    "type": "bool",
+    "description": "是否启用AI解读功能",
+    "hint": "开启后，用户可以通过按钮或指令触发AI对豆瓣作品的智能解读和推荐",
+    "default": true
+  },
+  "ai_max_length": {
+    "type": "int",
+    "description": "AI解读文本的最大长度（字符数）",
+    "hint": "控制AI生成解读文本的长度，避免过长的回复。建议范围：100-500字符",
+    "default": 300
+  },
+  "quota_view_daily_limit": {
+    "type": "int",
+    "description": "查看详情每日次数限制",
+    "hint": "每个用户每天可以查看豆瓣详情的次数。-1 表示无限制，VIP用户始终无限制",
+    "default": -1
+  },
+  "quota_view_points_cost": {
+    "type": "int",
+    "description": "查看详情消耗积分",
+    "hint": "每次查看豆瓣详情消耗的积分。0 表示免费，VIP用户始终免费",
+    "default": 0
+  },
+  "quota_search_daily_limit": {
+    "type": "int",
+    "description": "搜索每日次数限制",
+    "hint": "每个用户每天可以搜索豆瓣的次数。-1 表示无限制，VIP用户始终无限制",
+    "default": -1
+  },
+  "quota_search_points_cost": {
+    "type": "int",
+    "description": "搜索消耗积分",
+    "hint": "每次搜索豆瓣消耗的积分。0 表示免费，VIP用户始终免费",
+    "default": 0
+  },
+  "rate_limit_view_max": {
+    "type": "int",
+    "description": "查看详情 - 限流最大请求数",
+    "hint": "每个用户在时间窗口内最多可以查看详情的次数。防止恶意刷请求",
+    "default": 60
+  },
+  "rate_limit_view_window": {
+    "type": "int",
+    "description": "查看详情 - 限流时间窗口（秒）",
+    "hint": "限流的时间窗口。例如：60次/60秒 表示每分钟最多60次",
+    "default": 60
+  },
+  "rate_limit_search_max": {
+    "type": "int",
+    "description": "搜索 - 限流最大请求数",
+    "hint": "每个用户在时间窗口内最多可以搜索的次数。防止恶意刷请求",
+    "default": 60
+  },
+  "rate_limit_search_window": {
+    "type": "int",
+    "description": "搜索 - 限流时间窗口（秒）",
+    "hint": "限流的时间窗口。例如：60次/60秒 表示每分钟最多60次",
+    "default": 60
+  },
+  "rate_limit_ai_max": {
+    "type": "int",
+    "description": "AI解读 - 限流最大请求数",
+    "hint": "每个用户在时间窗口内最多可以使用AI解读的次数。防止恶意刷请求",
+    "default": 60
+  },
+  "rate_limit_ai_window": {
+    "type": "int",
+    "description": "AI解读 - 限流时间窗口（秒）",
+    "hint": "限流的时间窗口。例如：60次/60秒 表示每分钟最多60次",
+    "default": 60
+  }
+}

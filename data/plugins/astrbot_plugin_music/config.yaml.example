@@ -1,0 +1,157 @@
+# ============================================
+# AstrBot 音乐搜索插件配置文件
+# ============================================
+# 
+# 使用说明：
+# 1. 复制此文件为 config.yaml
+# 2. 填写必要的配置项（标记 ⚠️ 的为必填）
+# 3. 重启 AstrBot
+# ============================================
+
+# Music API Server 配置
+music_api:
+  # ⚠️ 必填：Music API Server 地址
+  base_url: "http://43.129.194.21:19003"
+  
+  # ⚠️ 必填：API 密钥（向管理员获取）
+  api_key: "YOUR_API_KEY_HERE"
+  
+  # API 请求超时时间（秒）
+  timeout: 30
+
+# Telegram Bot API 配置
+telegram_api:
+  # ⚠️ 必填：自建 Bot API 服务器地址（用于突破文件大小限制）
+  api_server: "http://168.138.42.230:19009"
+  
+  # 大文件使用自建服务器
+  use_custom_server_for_large_files: true
+  
+  # 文件大小阈值（超过此值使用自建服务器，字节）
+  large_file_threshold: 52428800  # 50MB
+
+# 搜索设置
+search:
+  # 默认搜索平台（netease/qq/kuwo）
+  default_platform: "netease"
+  
+  # 每页显示数量
+  page_size: 10
+  
+  # 搜索结果缓存时间（秒）
+  cache_ttl: 600
+  
+  # 最大搜索结果数
+  max_results: 100
+
+# 配额规则
+quota:
+  # 音质配额消耗规则
+  rules:
+    hires: 5        # HiRes 音质
+    jymaster: 5     # 网易云 Master
+    master: 5       # QQ音乐 Master
+    lossless: 3     # 无损音质
+    flac: 3         # FLAC 无损
+    exhigh: 2       # 高品质
+    "320": 2        # 320K
+    standard: 1     # 标准音质
+    "128": 1        # 128K
+  
+  # 用户等级配额（每日）
+  levels:
+    normal: 10      # 普通用户
+    vip: 50         # VIP 用户
+    admin: -1       # 管理员（无限制）
+  
+  # ⚠️ 管理员用户ID列表（拥有无限配额）
+  # 填写你的 Telegram user_id
+  admin_users:
+    - "123456789"   # 示例，请替换为实际 user_id
+    # - "987654321" # 可以添加多个
+
+# File ID 缓存设置 ⭐ 永久存储策略
+file_cache:
+  # 启用 file_id 缓存
+  enabled: true
+  
+  # 缓存策略：永久保存，不自动清理
+  # 当 file_id 发送失败时，会自动标记为失效
+  permanent_storage: true
+  
+  # 启用缓存统计功能
+  stats_enabled: true
+
+# 下载设置 ⭐ 注意：新方案下主要通过URL发送，减少本地存储
+download:
+  # 临时文件目录（备用）
+  temp_dir: "./temp"
+  
+  # 自动清理临时文件
+  auto_cleanup: true
+  
+  # API 调用失败重试次数
+  retry_times: 3
+  
+  # 重试延迟（秒）
+  retry_delay: 5
+
+# 功能开关
+features:
+  # 显示封面图片
+  enable_cover: true
+  
+  # 显示歌词（未实现）
+  enable_lyrics: false
+  
+  # 启用配额限制
+  enable_quota_limit: true
+  
+  # 启用统计功能
+  enable_stats: true
+  
+  # 启用 file_id 缓存
+  enable_file_cache: true
+
+# 数据库设置
+database:
+  # 数据库文件路径
+  path: "./user_quota.db"
+  
+  # 启用数据库备份
+  backup_enabled: true
+  
+  # 备份间隔（秒，默认每天）
+  backup_interval: 86400
+  
+  # 备份保留天数
+  backup_keep_days: 7
+
+# 日志设置
+logging:
+  # 日志级别（DEBUG/INFO/WARNING/ERROR）
+  level: "INFO"
+  
+  # 启用文件日志
+  file_enabled: true
+  
+  # 日志文件路径
+  file_path: "./music_plugin.log"
+  
+  # 单个日志文件最大大小（字节，10MB）
+  max_size: 10485760
+  
+  # 日志文件备份数量
+  backup_count: 5
+
+# ============================================
+# 配置说明完毕
+# 
+# 保存后重启 AstrBot 使配置生效
+# 
+# 获取帮助：
+# - 查看 README.md
+# - 查看 DEVELOPMENT_PLAN.md
+# - 查看 QUICK_REFERENCE.md
+# ============================================
+

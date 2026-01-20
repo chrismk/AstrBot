@@ -1,0 +1,74 @@
+{
+  "admins": {
+    "type": "string",
+    "description": "管理员列表",
+    "hint": "配置插件管理员的用户ID，多个用逗号分隔，格式：platform:user_id（如 telegram:123456789,lark:ou_xxx）",
+    "default": ""
+  },
+  "session_timeout": {
+    "type": "int",
+    "description": "会话超时时间（分钟）",
+    "hint": "用户在反馈输入等会话模式下的超时时间",
+    "default": 5
+  },
+  "feedback_enabled": {
+    "type": "bool",
+    "description": "是否启用反馈功能",
+    "hint": "启用后用户可以通过 /我 → 反馈 提交意见建议",
+    "default": true
+  },
+  "notification_enabled": {
+    "type": "bool",
+    "description": "是否启用通知推送",
+    "hint": "启用后会向管理员和用户推送反馈相关通知",
+    "default": true
+  },
+  "auto_delete_input_message": {
+    "type": "bool",
+    "description": "是否自动删除输入提示消息",
+    "hint": "启用后会在反馈提交成功时自动删除输入提示消息",
+    "default": true
+  },
+  "feedback_content_min_length": {
+    "type": "int",
+    "description": "反馈内容最小长度",
+    "hint": "用户提交反馈时内容的最小字符数",
+    "default": 5
+  },
+  "feedback_content_max_length": {
+    "type": "int",
+    "description": "反馈内容最大长度",
+    "hint": "用户提交反馈时内容的最大字符数",
+    "default": 1000
+  },
+  "statistics_enabled": {
+    "type": "bool",
+    "description": "是否启用数据统计",
+    "hint": "启用后管理员可以查看活跃用户统计和插件使用排行",
+    "default": true
+  },
+  "statistics_days": {
+    "type": "int",
+    "description": "统计数据天数",
+    "hint": "统计最近多少天的数据",
+    "default": 7
+  },
+  "daily_report_enabled": {
+    "type": "bool",
+    "description": "是否启用每日统计报告",
+    "hint": "启用后每天定时向管理员推送统计报告",
+    "default": true
+  },
+  "daily_report_time": {
+    "type": "string",
+    "description": "每日报告发送时间",
+    "hint": "格式 HH:MM，如 08:00 表示早上8点发送昨日报告",
+    "default": "08:00"
+  },
+  "daily_report_level": {
+    "type": "string",
+    "description": "报告详细程度",
+    "hint": "brief=简报（只含核心指标），full=完整报告（含排行榜等详情）",
+    "default": "full"
+  }
+}

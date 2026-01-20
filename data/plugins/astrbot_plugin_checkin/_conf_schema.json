@@ -1,0 +1,80 @@
+{
+  "base_points": {
+    "type": "int",
+    "description": "签到基础积分",
+    "hint": "每次签到获得的固定基础积分",
+    "default": 10
+  },
+  "random_points_min": {
+    "type": "int",
+    "description": "随机积分最小值",
+    "hint": "签到随机奖励的最小积分",
+    "default": 1
+  },
+  "random_points_max": {
+    "type": "int",
+    "description": "随机积分最大值",
+    "hint": "签到随机奖励的最大积分",
+    "default": 20
+  },
+  "lucky_chance": {
+    "type": "float",
+    "description": "幸运签到概率",
+    "hint": "触发幸运签到的概率，0.1 表示 10%",
+    "default": 0.1
+  },
+  "lucky_multiplier": {
+    "type": "float",
+    "description": "幸运签到倍数",
+    "hint": "触发幸运签到时的奖励倍数",
+    "default": 2.0
+  },
+  "streak_bonus_3": {
+    "type": "float",
+    "description": "连续3天签到倍数",
+    "hint": "连续签到3天及以上的奖励倍数",
+    "default": 1.2
+  },
+  "streak_bonus_7": {
+    "type": "float",
+    "description": "连续7天签到倍数",
+    "hint": "连续签到7天及以上的奖励倍数",
+    "default": 1.5
+  },
+  "streak_bonus_15": {
+    "type": "float",
+    "description": "连续15天签到倍数",
+    "hint": "连续签到15天及以上的奖励倍数",
+    "default": 1.8
+  },
+  "streak_bonus_30": {
+    "type": "float",
+    "description": "连续30天签到倍数",
+    "hint": "连续签到30天及以上的奖励倍数",
+    "default": 2.0
+  },
+  "perfect_month_bonus": {
+    "type": "int",
+    "description": "全勤奖励积分",
+    "hint": "本月每天都签到时额外获得的奖励积分",
+    "default": 200
+  },
+  "makeup_enabled": {
+    "type": "bool",
+    "description": "是否启用补签功能",
+    "hint": "启用后用户可以花费积分补签之前漏签的日期",
+    "default": true
+  },
+  "makeup_max_days": {
+    "type": "int",
+    "description": "补签最大天数",
+    "hint": "允许补签最近多少天内的记录",
+    "default": 7
+  },
+  "makeup_cost": {
+    "type": "int",
+    "description": "补签消耗积分",
+    "hint": "每次补签需要消耗的积分",
+    "default": 50
+  }
+}

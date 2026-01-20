@@ -1257,7 +1257,7 @@ class MiniAppRoute(Route):
         """
         统一搜索接口
 
-        GET /api/miniapp/search?type=book|music&q=xxx&page=1&limit=20&platform=qq
+        GET /api/miniapp/search?type=book|music|douban|pansou&q=xxx&page=1&limit=20&platform=qq&douban_type=book|movie&cloud_types=baidu|quark|ali
         """
         user_id = g.get("user_id")
         if not user_id:
@@ -1269,6 +1269,8 @@ class MiniAppRoute(Route):
             page = int(request.args.get("page", 1))
             limit = min(int(request.args.get("limit", 20)), 50)
             platform = request.args.get("platform", "")
+            douban_type = request.args.get("douban_type", "book")  # book|movie
+            cloud_types = request.args.get("cloud_types", "")  # 网盘类型
 
             if not query:
                 return jsonify(Response().error("请输入搜索关键词").__dict__)
@@ -1281,6 +1283,14 @@ class MiniAppRoute(Route):
             elif search_type == "music":
                 results, total = await self._search_music(
                     query, page, limit, platform or "qq"
+                )
+            elif search_type == "douban":
+                results, total = await self._search_douban(
+                    query, page, limit, douban_type, user_id
+                )
+            elif search_type == "pansou":
+                results, total = await self._search_pansou(
+                    query, page, limit, cloud_types
                 )
             else:
                 return jsonify(Response().error(f"不支持的搜索类型: {search_type}").__dict__)
@@ -1375,6 +1385,96 @@ class MiniAppRoute(Route):
             logger.error(f"[MiniApp] 音乐搜索失败: {e}")
             return [], 0
 
+    async def _search_douban(
+        self, query: str, page: int, limit: int, douban_type: str, user_id: str
+    ) -> tuple:
+        """搜索豆瓣（书籍/电影）"""
+        try:
+            from astrbot_plugin_douban.handlers.douban_api import DoubanAPI
+
+            douban_api = DoubanAPI()
+            items, total = await douban_api.search_douban(
+                keyword=query,
+                search_type=douban_type,  # book 或 movie
+                page=page,
+                user_id=user_id
+            )
+
+            results = []
+            for item in items[:limit]:
+                result = {
+                    "id": item.get("id", ""),
+                    "title": item.get("title", ""),
+                    "url": item.get("url", ""),
+                    "cover": item.get("cover_url", ""),
+                    "rating": item.get("rating", 0),
+                    "rating_count": item.get("rating_count", 0),
+                    "year": item.get("year", ""),
+                    "douban_type": douban_type,
+                }
+                # 书籍特有字段
+                if douban_type == "book":
+                    result["author"] = item.get("author", [])
+                    result["publisher"] = item.get("publisher", "")
+                # 电影特有字段
+                elif douban_type == "movie":
+                    result["director"] = item.get("director", [])
+                    result["actors"] = item.get("actors", [])
+
+                results.append(result)
+
+            return results, total
+
+        except ImportError:
+            logger.warning("[MiniApp] 豆瓣插件未安装")
+            return [], 0
+        except Exception as e:
+            logger.error(f"[MiniApp] 豆瓣搜索失败: {e}")
+            return [], 0
+
+    async def _search_pansou(
+        self, query: str, page: int, limit: int, cloud_types: str
+    ) -> tuple:
+        """搜索网盘资源"""
+        try:
+            from astrbot_plugin_pansou.handlers.pansou_api import PansouAPI
+
+            pansou_api = PansouAPI()
+            items, total = await pansou_api.search(
+                keyword=query,
+                cloud_types=cloud_types if cloud_types else None,
+                page=page,
+                page_size=limit
+            )
+
+            # 处理超时或异常
+            if items is None:
+                return [], 0
+
+            results = []
+            for item in items:
+                results.append(
+                    {
+                        "url": item.get("url", ""),
+                        "cloud_type": item.get("cloud_type", "unknown"),
+                        "password": item.get("password", ""),
+                        "title": item.get("title", item.get("work_title", "")),
+                        "content": item.get("content", ""),
+                        "note": item.get("note", ""),
+                        "datetime": item.get("datetime", ""),
+                        "source": item.get("source", item.get("channel", "")),
+                    }
+                )
+
+            return results, total
+
+        except ImportError:
+            logger.warning("[MiniApp] 盘搜插件未安装")
+            return [], 0
+        except Exception as e:
+            logger.error(f"[MiniApp] 盘搜失败: {e}")
+            return [], 0
+
     async def get_hot_searches(self):
         """
         获取热搜榜单
@@ -1412,7 +1512,7 @@ class MiniAppRoute(Route):
                     ]
                 else:
                     # 所有类型
-                    for plugin in ["book", "music"]:
+                    for plugin in ["book", "music", "douban", "pansou"]:
                         hot = stats.get_popular_searches(plugin, days=7, limit=limit)
                         hot_searches[plugin] = [
                             {

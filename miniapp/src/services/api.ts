@@ -304,3 +304,82 @@ export async function exchangePackage(packageId: string): Promise<ApiResponse<Ex
     body: JSON.stringify({ package_id: packageId }),
   });
 }
+
+// ==================== 订阅系统 API ====================
+
+export interface SubscriptionSource {
+  id: number;
+  name: string;
+  icon: string;
+  category: string;
+}
+
+export interface SubscriptionItem {
+  id: number;
+  type: string;
+  plugin_name: string;
+  target: string;
+  source: SubscriptionSource | null;
+  push_time: string;
+  push_frequency: string;
+  enabled: boolean;
+  created_at: string | null;
+  last_push_at: string | null;
+}
+
+export interface SubscriptionsData {
+  subscriptions: SubscriptionItem[];
+}
+
+export async function getSubscriptions(): Promise<ApiResponse<SubscriptionsData>> {
+  return request<SubscriptionsData>('/subscriptions');
+}
+
+export interface SourceItem {
+  id: number;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  subscribers: number;
+  is_subscribed: boolean;
+}
+
+export interface SourceCategory {
+  name: string;
+  sources: SourceItem[];
+}
+
+export interface SourcesData {
+  categories: SourceCategory[];
+}
+
+export async function getSubscriptionSources(category?: string): Promise<ApiResponse<SourcesData>> {
+  const query = category ? `?category=${encodeURIComponent(category)}` : '';
+  return request<SourcesData>(`/subscriptions/sources${query}`);
+}
+
+export interface SubscribeResult {
+  success: boolean;
+  subscription_id?: number;
+  message: string;
+}
+
+export async function subscribeSource(sourceId: number, pushTime: string = '19:00'): Promise<ApiResponse<SubscribeResult>> {
+  return request<SubscribeResult>('/subscriptions/subscribe', {
+    method: 'POST',
+    body: JSON.stringify({ source_id: sourceId, push_time: pushTime }),
+  });
+}
+
+export interface UnsubscribeResult {
+  success: boolean;
+  message: string;
+}
+
+export async function unsubscribe(subscriptionId: number): Promise<ApiResponse<UnsubscribeResult>> {
+  return request<UnsubscribeResult>('/subscriptions/unsubscribe', {
+    method: 'POST',
+    body: JSON.stringify({ subscription_id: subscriptionId }),
+  });
+}

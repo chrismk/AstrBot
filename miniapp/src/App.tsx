@@ -7,6 +7,7 @@ import { Leaderboard } from './pages/Leaderboard';
 import { Profile } from './pages/Profile';
 import { Tasks } from './pages/Tasks';
 import { Shop } from './pages/Shop';
+import { Subscriptions } from './pages/Subscriptions';
 
 function AppContent() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -39,6 +40,7 @@ function AppContent() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/shop" element={<Shop />} />
+        <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/profile" element={<Profile />} />
       </Routes>
       <BottomNav />

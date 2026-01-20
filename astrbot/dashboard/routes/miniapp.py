@@ -43,6 +43,8 @@ class MiniAppRoute(Route):
         self._points_manager = None
         self._checkin_manager = None
         self._task_manager = None
+        self._subscription_manager = None
+        self._source_manager = None
         self._init_managers()
 
         self.routes = [
@@ -66,6 +68,11 @@ class MiniAppRoute(Route):
             ("/miniapp/points/history", ("GET", self.get_points_history)),
             ("/miniapp/points/packages", ("GET", self.get_points_packages)),
             ("/miniapp/points/exchange", ("POST", self.exchange_package)),
+            # 订阅系统
+            ("/miniapp/subscriptions", ("GET", self.get_subscriptions)),
+            ("/miniapp/subscriptions/sources", ("GET", self.get_subscription_sources)),
+            ("/miniapp/subscriptions/subscribe", ("POST", self.subscribe_source)),
+            ("/miniapp/subscriptions/unsubscribe", ("POST", self.unsubscribe)),
         ]
         self.register_routes()
 
@@ -105,6 +112,17 @@ class MiniAppRoute(Route):
                 logger.info("[MiniApp] 任务管理器初始化完成")
             except ImportError as e:
                 logger.warning(f"[MiniApp] 任务模块未安装: {e}")
+
+            # 初始化订阅管理器
+            try:
+                from common.subscription_manager import get_subscription_manager
+                from common.subscription_source import get_source_manager, init_source_manager
+
+                self._subscription_manager = get_subscription_manager(self._db)
+                self._source_manager = init_source_manager(self._db)
+                logger.info("[MiniApp] 订阅管理器初始化完成")
+            except ImportError as e:
+                logger.warning(f"[MiniApp] 订阅模块未安装: {e}")
 
             logger.info("[MiniApp] 管理器初始化完成")
         except ImportError as e:
@@ -992,3 +1010,240 @@ class MiniAppRoute(Route):
         except Exception as e:
             logger.error(f"[MiniApp] 兑换配额包失败: {e}")
             return jsonify(Response().error(f"兑换失败: {e!s}").__dict__)
+
+    # ==================== 订阅系统 API ====================
+
+    async def get_subscriptions(self):
+        """
+        获取用户订阅列表
+
+        GET /api/miniapp/subscriptions
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._subscription_manager:
+                return jsonify(Response().error("订阅系统未初始化").__dict__)
+
+            # 获取用户订阅
+            subscriptions = self._subscription_manager.get_user_subscriptions(user_id)
+
+            # 格式化返回数据
+            sub_list = []
+            for sub in subscriptions:
+                # 获取订阅源信息
+                source_info = None
+                if sub.source_id and self._source_manager:
+                    source = self._source_manager.get_source(sub.source_id)
+                    if source:
+                        source_info = {
+                            "id": source.id,
+                            "name": source.get_display_title(),
+                            "icon": source.icon,
+                            "category": source.category,
+                        }
+
+                sub_list.append(
+                    {
+                        "id": sub.id,
+                        "type": sub.subscription_type.value,
+                        "plugin_name": sub.plugin_name,
+                        "target": sub.target,
+                        "source": source_info,
+                        "push_time": sub.push_time,
+                        "push_frequency": sub.push_frequency.value,
+                        "enabled": sub.enabled,
+                        "created_at": sub.created_at.isoformat()
+                        if sub.created_at
+                        else None,
+                        "last_push_at": sub.last_push_at.isoformat()
+                        if sub.last_push_at
+                        else None,
+                    }
+                )
+
+            return jsonify(Response().ok({"subscriptions": sub_list}).__dict__)
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取订阅列表失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    async def get_subscription_sources(self):
+        """
+        获取可订阅的订阅源列表
+
+        GET /api/miniapp/subscriptions/sources?category=xxx
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._source_manager:
+                return jsonify(Response().error("订阅系统未初始化").__dict__)
+
+            category = request.args.get("category", "")
+
+            # 获取可用订阅源（用户级别 0 表示允许公开订阅源）
+            sources = self._source_manager.get_available_sources(user_access_level=0)
+
+            # 获取用户已订阅的源 ID
+            user_subs = self._subscription_manager.get_user_subscriptions(user_id)
+            subscribed_source_ids = {
+                sub.source_id for sub in user_subs if sub.source_id
+            }
+
+            # 按分类组织
+            categories: dict[str, list] = {}
+            for source in sources:
+                if category and source.category != category:
+                    continue
+
+                cat = source.category or "其他"
+                if cat not in categories:
+                    categories[cat] = []
+
+                categories[cat].append(
+                    {
+                        "id": source.id,
+                        "name": source.get_display_title(),
+                        "description": source.description,
+                        "icon": source.icon,
+                        "category": source.category,
+                        "subscribers": source.current_subscribers,
+                        "is_subscribed": source.id in subscribed_source_ids,
+                    }
+                )
+
+            return jsonify(
+                Response()
+                .ok(
+                    {
+                        "categories": [
+                            {"name": cat, "sources": srcs}
+                            for cat, srcs in categories.items()
+                        ]
+                    }
+                )
+                .__dict__
+            )
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 获取订阅源列表失败: {e}")
+            return jsonify(Response().error(f"获取失败: {e!s}").__dict__)
+
+    async def subscribe_source(self):
+        """
+        订阅订阅源
+
+        POST /api/miniapp/subscriptions/subscribe
+        Body: { "source_id": 1, "push_time": "19:00" }
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._subscription_manager or not self._source_manager:
+                return jsonify(Response().error("订阅系统未初始化").__dict__)
+
+            data = await request.json
+            source_id = data.get("source_id")
+            push_time = data.get("push_time", "19:00")
+
+            if not source_id:
+                return jsonify(Response().error("请指定订阅源").__dict__)
+
+            # 获取订阅源信息
+            source = self._source_manager.get_source(source_id)
+            if not source:
+                return jsonify(Response().error("订阅源不存在").__dict__)
+
+            # 检查是否已订阅
+            user_subs = self._subscription_manager.get_user_subscriptions(user_id)
+            for sub in user_subs:
+                if sub.source_id == source_id:
+                    return jsonify(Response().error("已订阅该源").__dict__)
+
+            # 创建订阅
+            from common.subscription_manager import SubscriptionType, PushFrequency
+
+            sub_id = self._subscription_manager.subscribe_source(
+                user_id=user_id,
+                source_id=source_id,
+                push_time=push_time,
+                push_frequency=PushFrequency.DAILY,
+            )
+
+            if sub_id:
+                # 更新订阅源的订阅者数
+                self._source_manager.increment_subscribers(source_id)
+
+                return jsonify(
+                    Response()
+                    .ok(
+                        {
+                            "success": True,
+                            "subscription_id": sub_id,
+                            "message": f"已订阅「{source.get_display_title()}」",
+                        }
+                    )
+                    .__dict__
+                )
+            else:
+                return jsonify(Response().error("订阅失败").__dict__)
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 订阅失败: {e}")
+            return jsonify(Response().error(f"订阅失败: {e!s}").__dict__)
+
+    async def unsubscribe(self):
+        """
+        取消订阅
+
+        POST /api/miniapp/subscriptions/unsubscribe
+        Body: { "subscription_id": 1 }
+        """
+        user_id = g.get("user_id")
+        if not user_id:
+            return jsonify(Response().error("未登录").__dict__)
+
+        try:
+            if not self._subscription_manager:
+                return jsonify(Response().error("订阅系统未初始化").__dict__)
+
+            data = await request.json
+            subscription_id = data.get("subscription_id")
+
+            if not subscription_id:
+                return jsonify(Response().error("请指定订阅ID").__dict__)
+
+            # 获取订阅信息（用于更新订阅源订阅者数）
+            sub = self._subscription_manager.get_subscription(subscription_id)
+            if not sub:
+                return jsonify(Response().error("订阅不存在").__dict__)
+
+            # 验证权限
+            if sub.user_id != user_id:
+                return jsonify(Response().error("无权操作").__dict__)
+
+            success = self._subscription_manager.unsubscribe(subscription_id)
+
+            if success:
+                # 更新订阅源的订阅者数
+                if sub.source_id and self._source_manager:
+                    self._source_manager.decrement_subscribers(sub.source_id)
+
+                return jsonify(
+                    Response()
+                    .ok({"success": True, "message": "已取消订阅"})
+                    .__dict__
+                )
+            else:
+                return jsonify(Response().error("取消失败").__dict__)
+
+        except Exception as e:
+            logger.error(f"[MiniApp] 取消订阅失败: {e}")
+            return jsonify(Response().error(f"取消失败: {e!s}").__dict__)

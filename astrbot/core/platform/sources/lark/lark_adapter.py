@@ -328,6 +328,7 @@ class LarkPlatformAdapter(Platform):
     async def run(self):
         # self.client.start()
         await self.client._connect()
+        asyncio.create_task(self.client._ping_loop())  # 启动心跳保持连接
 
     async def terminate(self):
         await self.client._disconnect()

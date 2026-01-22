@@ -31,18 +31,22 @@ class QuotaAnalytics:
         """
         self.db = db_manager
     
-    async def get_usage_stats(self, days: int = 7) -> Dict:
+    async def get_usage_stats(self, days: int = 7, start_days_ago: int = 0) -> Dict:
         """
         获取使用统计
         
         Args:
             days: 统计天数
+            start_days_ago: 从几天前开始统计（0=今天，1=昨天）
             
         Returns:
             统计数据字典
         """
         try:
-            start_date = date.today() - timedelta(days=days)
+            # start_days_ago=1, days=1 表示统计昨天一整天
+            today = date.today()
+            end_date = today - timedelta(days=start_days_ago - 1) if start_days_ago > 0 else today + timedelta(days=1)
+            start_date = end_date - timedelta(days=days)
             
             # 1. 按操作类型统计
             action_stats = self.db.execute("""
@@ -51,10 +55,10 @@ class QuotaAnalytics:
                        SUM(count) as total_count,
                        SUM(points_spent) as total_points
                 FROM quota_usage
-                WHERE usage_date >= ?
+                WHERE usage_date >= ? AND usage_date < ?
                 GROUP BY action_type
                 ORDER BY total_count DESC
-            """, (start_date,))
+            """, (start_date, end_date))
             
             # 2. 按会员等级统计
             member_stats = self.db.execute("""
@@ -64,10 +68,10 @@ class QuotaAnalytics:
                        SUM(qu.points_spent) as total_points
                 FROM quota_usage qu
                 JOIN memberships m ON qu.user_id = m.user_id
-                WHERE qu.usage_date >= ?
+                WHERE qu.usage_date >= ? AND qu.usage_date < ?
                 GROUP BY m.level
                 ORDER BY m.level
-            """, (start_date,))
+            """, (start_date, end_date))
             
             # 3. 每日趋势
             daily_stats = self.db.execute("""
@@ -75,21 +79,21 @@ class QuotaAnalytics:
                        COUNT(DISTINCT user_id) as active_users,
                        SUM(count) as total_usage
                 FROM quota_usage
-                WHERE usage_date >= ?
+                WHERE usage_date >= ? AND usage_date < ?
                 GROUP BY usage_date
                 ORDER BY usage_date
-            """, (start_date,))
+            """, (start_date, end_date))
             
             # 4. 热门操作 TOP 10
             top_actions = self.db.execute("""
                 SELECT action_type,
                        SUM(count) as total_count
                 FROM quota_usage
-                WHERE usage_date >= ?
+                WHERE usage_date >= ? AND usage_date < ?
                 GROUP BY action_type
                 ORDER BY total_count DESC
                 LIMIT 10
-            """, (start_date,))
+            """, (start_date, end_date))
             
             return {
                 "period": f"最近{days}天",

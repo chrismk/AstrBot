@@ -94,6 +94,13 @@ class DailyReportData:
     plugin_count: int = 0
     rate_limiter_active_users: int = 0
     rate_limiter_total_requests: int = 0
+    
+    # 错误统计
+    error_count_today: int = 0
+    error_count_yesterday: int = 0
+    error_change_percent: float = 0
+    error_by_module: List[Dict[str, Any]] = field(default_factory=list)
+    error_by_type: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class DailyReportGenerator:
@@ -208,6 +215,9 @@ class DailyReportGenerator:
             # 4. 采集数据库统计
             await self._collect_db_stats(data)
             
+            # 5. 采集错误统计
+            await self._collect_error_stats(data)
+            
         except Exception as e:
             logger.error(f"[DailyReport] 采集数据失败: {e}", exc_info=True)
         
@@ -222,11 +232,22 @@ class DailyReportGenerator:
             # 获取仪表盘数据（含昨日的 DAU 等）
             dashboard = self.search_statistics.get_dashboard_stats(days=7)
             
-            # DAU 数据 - 昨天的数据
-            # 注意：因为是早上推送，yesterday_dau 正好是我们要统计的日期
+            # DAU 数据
+            # get_dashboard_stats 返回的 today_dau 是“今天的 DAU”，yesterday_dau 是“昨天的 DAU”
+            # 我们的报告是“昨日报告”，所以要统计的是昨天的 DAU
             data.today_dau = dashboard.get('yesterday_dau', 0)  # 昨日 DAU
-            data.yesterday_dau = dashboard.get('day_before_dau', dashboard.get('yesterday_dau', 0))  # 前日 DAU
-            data.dau_change_percent = dashboard.get('dau_change', 0)
+            
+            # 计算昨日与前日的环比（需要重新计算）
+            # dashboard 的 dau_change 是“今天 vs 昨天”，我们需要“昨天 vs 前天”
+            day_before = datetime.now() - timedelta(days=2)
+            day_before_dau = self.search_statistics.get_daily_active_users(target_date=day_before)
+            data.yesterday_dau = day_before_dau
+            
+            if day_before_dau > 0:
+                data.dau_change_percent = round((data.today_dau - day_before_dau) / day_before_dau * 100, 1)
+            else:
+                data.dau_change_percent = 0
+            
             data.avg_dau_7d = dashboard.get('avg_dau_7d', 0)
             
             # 留存率
@@ -258,12 +279,14 @@ class DailyReportGenerator:
             # 热门操作 - 昨日
             data.top_actions = usage_stats.get('top_actions', [])[:5]
             
-            # 请求统计 - 昨日
-            data.today_requests = usage_stats.get('total_usage', 0)
+            # 请求统计 - 昨日（从 daily_stats 中汇总）
+            daily_stats = usage_stats.get('daily_stats', [])
+            data.today_requests = sum(d.get('total_usage', 0) for d in daily_stats)
             
             # 获取 7 日统计
             week_stats = await self.quota_analytics.get_usage_stats(days=7)
-            data.week_requests = week_stats.get('total_usage', 0)
+            week_daily = week_stats.get('daily_stats', [])
+            data.week_requests = sum(d.get('total_usage', 0) for d in week_daily)
             
         except Exception as e:
             logger.error(f"[DailyReport] 采集配额统计失败: {e}")
@@ -283,8 +306,14 @@ class DailyReportGenerator:
             data.memory_used_mb = memory.used / (1024 * 1024)
             data.memory_percent = memory.percent
             
-            # 磁盘
-            disk = psutil.disk_usage('/')
+            # 磁盘（兼容 Windows 和 Linux）
+            import os
+            if os.name == 'nt':  # Windows
+                # 获取当前工作目录所在的盘符
+                current_drive = os.path.splitdrive(os.getcwd())[0] + '\\'
+                disk = psutil.disk_usage(current_drive)
+            else:  # Linux/macOS
+                disk = psutil.disk_usage('/')
             data.disk_used_gb = disk.used / (1024 ** 3)
             data.disk_total_gb = disk.total / (1024 ** 3)
             data.disk_percent = disk.percent
@@ -292,9 +321,10 @@ class DailyReportGenerator:
             # 插件数量
             if self.context:
                 try:
-                    star_manager = self.context.get_star_manager()
-                    if star_manager:
-                        data.plugin_count = len(star_manager.get_registered_stars())
+                    # 使用 context.get_all_stars() 获取所有已激活的插件
+                    all_stars = self.context.get_all_stars()
+                    # 只统计已激活的插件
+                    data.plugin_count = len([s for s in all_stars if getattr(s, 'activated', True)])
                 except Exception:
                     pass
             
@@ -352,6 +382,26 @@ class DailyReportGenerator:
                 
         except Exception as e:
             logger.error(f"[DailyReport] 采集数据库统计失败: {e}")
+    
+    async def _collect_error_stats(self, data: DailyReportData):
+        """采集昨日错误统计"""
+        try:
+            from .error_tracker import get_error_tracker
+            tracker = get_error_tracker()
+            if not tracker:
+                return
+            
+            stats = tracker.get_error_stats(days=7)
+            if not stats:
+                return
+            
+            data.error_count_today = stats.get('yesterday_errors', 0)
+            data.error_change_percent = stats.get('change_percent', 0)
+            data.error_by_module = stats.get('by_module', [])[:5]
+            data.error_by_type = stats.get('by_type', [])[:5]
+            
+        except Exception as e:
+            logger.error(f"[DailyReport] 采集错误统计失败: {e}")
     
     def format_report(self, data: DailyReportData, level: str = "full") -> str:
         """
@@ -471,6 +521,17 @@ class DailyReportGenerator:
             f"├ 插件: {data.plugin_count}个运行中",
             f"└ 限流器: {data.rate_limiter_active_users}活跃/{data.rate_limiter_total_requests}请求",
         ])
+        
+        # 错误统计
+        if data.error_count_today > 0 or data.error_by_module:
+            lines.extend([
+                "",
+                "🔴 错误统计",
+                f"├ 昨日错误: {data.error_count_today}次 ({self._format_change(data.error_change_percent)})",
+            ])
+            if data.error_by_module:
+                modules = ", ".join([f"{e['module']}:{e['count']}" for e in data.error_by_module[:3]])
+                lines.append(f"└ 模块分布: {modules}")
         
         lines.append("━" * 22)
         return "\n".join(lines)

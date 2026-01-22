@@ -199,6 +199,13 @@ from .task_tracker import (
     track_task
 )
 
+# 错误追踪
+from .error_tracker import (
+    ErrorTracker,
+    get_error_tracker,
+    track_error
+)
+
 # 邀请系统
 from .invite_manager import (
     InviteManager,
@@ -399,6 +406,10 @@ __all__ = [
     'platform_utils',
     'message_formatter',
     'extract_user_info',
+    # 错误追踪
+    'ErrorTracker',
+    'get_error_tracker',
+    'track_error',
     # 消息格式化
     'get_separator',
     'format_title_for_platform',

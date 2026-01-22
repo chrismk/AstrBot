@@ -1151,35 +1151,7 @@ class SubscriptionManager:
     
     # ==================== 推送相关 ====================
     
-    def get_due_subscriptions(self, within_minutes: int = 5) -> List[Subscription]:
-        """
-        获取即将到期需要推送的订阅
-        
-        这是调度器的核心查询方法，基于 next_push_at 字段直接查询。
-        
-        Args:
-            within_minutes: 查询未来多少分钟内需要推送的订阅
-            
-        Returns:
-            需要推送的订阅列表
-        """
-        try:
-            now = datetime.now()
-            end_time = now + timedelta(minutes=within_minutes)
-            
-            rows = self.db.execute("""
-                SELECT * FROM subscriptions
-                WHERE (is_active = 1 OR enabled = 1)
-                  AND next_push_at IS NOT NULL
-                  AND next_push_at <= ?
-                ORDER BY next_push_at ASC
-            """, (end_time,))
-            
-            return [Subscription.from_row(dict(row)) for row in rows]
-            
-        except Exception as e:
-            logger.error(f"[SubscriptionManager] 获取待推送订阅失败: {e}")
-            return []
+    # 注意：get_due_subscriptions 方法已在上方定义（行 872），支持 buffer_minutes 和 within_minutes 参数
     
     def mark_pushed(self, subscription_id: int, success: bool = True, error_message: str = None):
         """

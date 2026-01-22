@@ -339,8 +339,12 @@ class PluginScheduler:
         
         try:
             # 移除已存在的任务
-            if self._scheduler.get_job(task.task_id):
-                self._scheduler.remove_job(task.task_id)
+            try:
+                existing_job = self._scheduler.get_job(task.task_id)
+                if existing_job:
+                    self._scheduler.remove_job(task.task_id)
+            except Exception:
+                pass
             
             # 创建触发器
             if task.cron:
@@ -349,7 +353,7 @@ class PluginScheduler:
                 trigger = IntervalTrigger(seconds=task.interval_seconds)
             
             # 添加任务
-            job = self._scheduler.add_job(
+            self._scheduler.add_job(
                 self._execute_task,
                 trigger=trigger,
                 id=task.task_id,
@@ -358,8 +362,18 @@ class PluginScheduler:
                 replace_existing=True
             )
             
-            # 更新下次执行时间
-            task.next_run = job.next_run_time
+            # 尝试获取下次执行时间（兼容不同版本 APScheduler）
+            try:
+                job = self._scheduler.get_job(task.task_id)
+                if job:
+                    # APScheduler 3.x
+                    if hasattr(job, 'next_run_time'):
+                        task.next_run = job.next_run_time
+                    # APScheduler 4.x
+                    elif hasattr(job, 'next_fire_time'):
+                        task.next_run = job.next_fire_time
+            except Exception:
+                pass
             
             logger.debug(f"[Scheduler] 添加任务到调度器: {task.task_id}, 下次执行: {task.next_run}")
             
@@ -435,11 +449,17 @@ class PluginScheduler:
         if self.db:
             self._save_task_to_db(task)
         
-        # 更新下次执行时间
+        # 更新下次执行时间（兼容不同版本 APScheduler）
         if self._scheduler:
-            job = self._scheduler.get_job(task_id)
-            if job:
-                task.next_run = job.next_run_time
+            try:
+                job = self._scheduler.get_job(task_id)
+                if job:
+                    if hasattr(job, 'next_run_time'):
+                        task.next_run = job.next_run_time
+                    elif hasattr(job, 'next_fire_time'):
+                        task.next_run = job.next_fire_time
+            except Exception:
+                pass
     
     def _log_execution(
         self,

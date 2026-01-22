@@ -137,7 +137,8 @@ class SearchStatistics:
         self,
         plugin_name: str = None,
         days: int = 7,
-        limit: int = 10
+        limit: int = 10,
+        start_days_ago: int = 0
     ) -> List[Dict[str, Any]]:
         """
         获取热门搜索
@@ -146,30 +147,35 @@ class SearchStatistics:
             plugin_name: 插件名称，None表示所有插件
             days: 统计天数
             limit: 返回数量
+            start_days_ago: 从几天前开始统计（0=今天，1=昨天）
             
         Returns:
             热门搜索列表
         """
-        since = datetime.now() - timedelta(days=days)
+        # 计算时间范围
+        # start_days_ago=1, days=1 表示统计昨天一整天（昨天 00:00 到 今天 00:00）
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = today - timedelta(days=start_days_ago - 1) if start_days_ago > 0 else today + timedelta(days=1)
+        since = end_date - timedelta(days=days)
         
         if plugin_name:
             rows = self.db.execute("""
                 SELECT keyword, COUNT(*) as search_count, COUNT(DISTINCT user_id) as unique_users
                 FROM search_statistics
-                WHERE plugin_name = ? AND created_at > ? AND keyword IS NOT NULL AND keyword != ''
+                WHERE plugin_name = ? AND created_at >= ? AND created_at < ? AND keyword IS NOT NULL AND keyword != ''
                 GROUP BY keyword
                 ORDER BY search_count DESC
                 LIMIT ?
-            """, (plugin_name, since, limit))
+            """, (plugin_name, since, end_date, limit))
         else:
             rows = self.db.execute("""
                 SELECT plugin_name, keyword, COUNT(*) as search_count, COUNT(DISTINCT user_id) as unique_users
                 FROM search_statistics
-                WHERE created_at > ? AND keyword IS NOT NULL AND keyword != ''
+                WHERE created_at >= ? AND created_at < ? AND keyword IS NOT NULL AND keyword != ''
                 GROUP BY plugin_name, keyword
                 ORDER BY search_count DESC
                 LIMIT ?
-            """, (since, limit))
+            """, (since, end_date, limit))
         
         return [dict(row) for row in rows]
     
@@ -177,7 +183,8 @@ class SearchStatistics:
         self,
         plugin_name: str = None,
         days: int = 7,
-        limit: int = 10
+        limit: int = 10,
+        start_days_ago: int = 0
     ) -> List[Dict[str, Any]]:
         """
         获取热门下载
@@ -186,30 +193,35 @@ class SearchStatistics:
             plugin_name: 插件名称
             days: 统计天数
             limit: 返回数量
+            start_days_ago: 从几天前开始统计（0=今天，1=昨天）
             
         Returns:
             热门下载列表
         """
-        since = datetime.now() - timedelta(days=days)
+        # 计算时间范围
+        # start_days_ago=1, days=1 表示统计昨天一整天（昨天 00:00 到 今天 00:00）
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = today - timedelta(days=start_days_ago - 1) if start_days_ago > 0 else today + timedelta(days=1)
+        since = end_date - timedelta(days=days)
         
         if plugin_name:
             rows = self.db.execute("""
                 SELECT item_id, item_name, platform, COUNT(*) as download_count, COUNT(DISTINCT user_id) as unique_users
                 FROM download_statistics
-                WHERE plugin_name = ? AND created_at > ?
+                WHERE plugin_name = ? AND created_at >= ? AND created_at < ?
                 GROUP BY item_id, item_name, platform
                 ORDER BY download_count DESC
                 LIMIT ?
-            """, (plugin_name, since, limit))
+            """, (plugin_name, since, end_date, limit))
         else:
             rows = self.db.execute("""
                 SELECT plugin_name, item_id, item_name, platform, COUNT(*) as download_count, COUNT(DISTINCT user_id) as unique_users
                 FROM download_statistics
-                WHERE created_at > ?
+                WHERE created_at >= ? AND created_at < ?
                 GROUP BY plugin_name, item_id, item_name, platform
                 ORDER BY download_count DESC
                 LIMIT ?
-            """, (since, limit))
+            """, (since, end_date, limit))
         
         return [dict(row) for row in rows]
     

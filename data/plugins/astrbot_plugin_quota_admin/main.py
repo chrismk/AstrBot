@@ -164,6 +164,14 @@ class QuotaAdminPlugin(Star):
                 except Exception as e:
                     logger.debug(f"[QuotaAdmin] 任务管理器初始化失败: {e}")
                 
+                # 初始化错误追踪器
+                try:
+                    from common.error_tracker import get_error_tracker
+                    get_error_tracker(self.db)
+                    logger.info("[QuotaAdmin] 错误追踪器初始化成功")
+                except Exception as e:
+                    logger.debug(f"[QuotaAdmin] 错误追踪器初始化失败: {e}")
+                
                 # 初始化每日报告生成器
                 try:
                     from common.daily_report import init_daily_report
@@ -301,6 +309,11 @@ class QuotaAdminPlugin(Star):
                 description="每日统计报告",
                 enabled=self.daily_report_enabled
             )
+            
+            # 启动调度器（如果尚未启动）
+            import asyncio
+            if not scheduler._started:
+                asyncio.get_event_loop().create_task(scheduler.start())
             
             logger.info(f"[QuotaAdmin] 每日报告任务已注册: {hour:02d}:{minute:02d}")
             
@@ -1099,8 +1112,9 @@ class QuotaAdminPlugin(Star):
                     elif extra[0] == "send":
                         # 立即发送
                         if self.daily_report_generator:
+                            # 显示加载提示
+                            loading_msg_id = await LoadingIndicator.show(event, 'process', "正在生成并发送报告...")
                             try:
-                                yield event.plain_result("⏳ 正在生成并发送报告...")
                                 results = await self.daily_report_generator.send_to_admins()
                                 message, keyboard = builder.build_daily_report_send_result(results)
                                 async for result in MessageEditor.edit_or_send(event, message, keyboard):
@@ -1108,6 +1122,9 @@ class QuotaAdminPlugin(Star):
                             except Exception as e:
                                 logger.error(f"[QuotaAdmin] 发送报告失败: {e}")
                                 yield event.plain_result(f"❌ 发送失败: {e}")
+                            finally:
+                                # 清理加载提示
+                                await LoadingIndicator.hide(event, loading_msg_id)
                         else:
                             yield event.plain_result("❌ 每日报告模块未初始化")
             

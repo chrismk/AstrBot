@@ -1,7 +1,0 @@
-name: astrbot_plugin_file_processor
-version: 1.0.0
-description: 接收文件后计算 SHA256 与大小并回复
-author: AstrBot
-main: main.py
-
-

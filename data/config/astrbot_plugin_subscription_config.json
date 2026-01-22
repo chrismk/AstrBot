@@ -1,8 +1,0 @@
-﻿{
-    "session_timeout": 2,
-    "max_subscriptions_per_user": 20,
-    "default_push_time": "19:00",
-    "push_check_interval": 60,
-    "push_batch_size": 50,
-    "push_concurrency": 10
-}

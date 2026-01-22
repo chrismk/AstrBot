@@ -1,4 +1,0 @@
-name: "astrbot_plugin_book"
-author: "Chrismk"
-desc: "书籍搜索插件，通过命令 /书 触发，支持多平台书籍资源搜索、下载和AI解读"
-version: "2.0.0"

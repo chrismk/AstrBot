@@ -1,4 +1,0 @@
-name: "astrbot_plugin_music"
-author: "Chrismk"
-desc: "音乐搜索插件 - 支持多平台搜索下载、会话模式、配额管理、缓存优化"
-version: "2.0.0"
